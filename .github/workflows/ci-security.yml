@@ -2,6 +2,8 @@ name: CI Security Pipeline
 
 on:
   push:
+    tags:
+      - 'v*'
     branches:
       - main
   pull_request:
