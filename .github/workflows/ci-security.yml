@@ -94,7 +94,7 @@ jobs:
           docker build -t "${{ secrets.DOCKERHUB_USERNAME }}/${IMAGE_NAME}:${{ steps.vars.outputs.tag }}" .
 
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.tag }}'
           format: table
