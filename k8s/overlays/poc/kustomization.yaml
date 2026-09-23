@@ -7,10 +7,7 @@ namespace: devsecops
 resources:
   - ../../base
 
-# NOTE: digest is a placeholder — before deploying, run
-# `kustomize edit set image node-api-poc=DOCKERHUB_USERNAME/node-api-poc@<real-digest>`
-# with the digest of the image actually pushed by CI.
 images:
   - name: node-api-poc
     newName: DOCKERHUB_USERNAME/node-api-poc
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    newTag: "1.0.0"
