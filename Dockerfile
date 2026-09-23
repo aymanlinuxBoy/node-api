@@ -7,13 +7,13 @@ COPY src ./src
 
 # ---- Runtime stage ----
 FROM node:20-alpine
-RUN addgroup -g 1001 nodeapp && adduser -D -u 1001 -G nodeapp nodeapp
+RUN addgroup -g 10001 nodeapp && adduser -D -u 10001 -G nodeapp nodeapp
 WORKDIR /app
 COPY --from=build --chown=nodeapp:nodeapp /app/node_modules ./node_modules
 COPY --from=build --chown=nodeapp:nodeapp /app/src ./src
 COPY --chown=nodeapp:nodeapp package.json ./
 
-USER 1001
+USER 10001
 ENV NODE_ENV=production
 EXPOSE 3000
 

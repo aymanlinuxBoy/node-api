@@ -17,12 +17,15 @@ spec:
       serviceAccountName: node-api-poc
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
+        runAsUser: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: node-api-poc
-          image: node-api-poc:1.0.0
+          # NOTE: placeholder digest — replace with the real pushed image
+          # digest (docker inspect --format='{{index .RepoDigests 0}}') before applying.
+          image: node-api-poc@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
 
@@ -30,7 +33,7 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
-            runAsUser: 1001
+            runAsUser: 10001
             capabilities:
               drop:
                 - ALL
