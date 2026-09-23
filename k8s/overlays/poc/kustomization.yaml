@@ -10,4 +10,4 @@ resources:
 images:
   - name: node-api-poc
     newName: DOCKERHUB_USERNAME/node-api-poc
-    newTag: latest
+    newTag: "1.0.0"

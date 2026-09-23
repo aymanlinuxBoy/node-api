@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: node-api-poc
+  namespace: devsecops
 spec:
   replicas: 2
   selector:
@@ -12,6 +13,7 @@ spec:
       labels:
         app: node-api-poc
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: node-api-poc
       securityContext:
         runAsNonRoot: true
@@ -20,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: node-api-poc
-          image: node-api-poc:latest
+          image: node-api-poc:1.0.0
           ports:
             - containerPort: 3000
 
@@ -51,16 +53,13 @@ spec:
                 configMapKeyRef:
                   name: node-api-poc-config
                   key: DB_NAME
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: node-api-poc-db-credentials
-                  key: DB_USER
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: node-api-poc-db-credentials
-                  key: DB_PASSWORD
+
+          volumeMounts:
+            - name: db-credentials
+              mountPath: /var/run/secrets/db
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
 
           resources:
             requests:
@@ -87,3 +86,11 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+
+      volumes:
+        - name: db-credentials
+          secret:
+            secretName: node-api-poc-db-credentials
+            defaultMode: 0400
+        - name: tmp
+          emptyDir: {}
