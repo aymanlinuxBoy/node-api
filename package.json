@@ -1,0 +1,21 @@
+{
+  "name": "node-api-poc",
+  "version": "1.0.0",
+  "description": "DevSecOps CI/CD POC - Node.js REST API backed by PostgreSQL HA",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "jest --colors"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  }
+}
