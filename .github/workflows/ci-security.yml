@@ -21,6 +21,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # gitleaks-action diffs against the previous commit SHA, which
+          # requires full history — a shallow clone leaves that commit
+          # unresolvable and fails with "unknown revision".
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
