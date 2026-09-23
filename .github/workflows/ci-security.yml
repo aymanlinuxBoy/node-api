@@ -78,10 +78,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all tags
 
-      - name: Set image tag
+      - name: Determine image tag (semantic versioning)
         id: vars
-        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+        run: |
+          # Check if current commit is tagged with a semantic version
+          TAG=$(git describe --tags --exact-match 2>/dev/null || echo "")
+
+          if [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Use semantic version tag (strip 'v' prefix)
+            echo "tag=${TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "Using semantic version tag: ${TAG#v}"
+          else
+            # Fall back to short SHA for non-tagged commits
+            echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+            echo "No semantic version tag found, using short SHA: ${GITHUB_SHA::12}"
+          fi
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -143,6 +157,17 @@ jobs:
           docker network rm smoke-test-net
           exit 1
 
-      - name: Push image
+      - name: Tag and push image
         run: |
-          docker push "${{ secrets.DOCKERHUB_USERNAME }}/${IMAGE_NAME}:${{ steps.vars.outputs.tag }}"
+          IMAGE_TAG="${{ steps.vars.outputs.tag }}"
+          REGISTRY="${{ secrets.DOCKERHUB_USERNAME }}"
+
+          # Push with version/SHA tag
+          docker push "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+          # Also push as 'latest' if this is a semantic version tag (v1.0.0 format)
+          if [[ $IMAGE_TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            docker tag "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" "${REGISTRY}/${IMAGE_NAME}:latest"
+            docker push "${REGISTRY}/${IMAGE_NAME}:latest"
+            echo "Pushed semantic version ${IMAGE_TAG} and latest tag"
+          fi
