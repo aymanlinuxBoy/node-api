@@ -105,15 +105,32 @@ jobs:
 
       - name: Smoke test
         run: |
+          # Create network and postgres service for smoke test
+          docker network create smoke-test-net || true
+          docker run -d --name smoke-postgres \
+            --network smoke-test-net \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=testdb \
+            postgres:16-alpine
+
+          sleep 5  # Wait for postgres to be ready
+
           docker run -d --name smoke \
+            --network smoke-test-net \
             -p 8080:3000 \
+            -e DB_HOST=smoke-postgres \
+            -e DB_PORT=5432 \
+            -e DB_NAME=testdb \
+            -e DB_USER=postgres \
+            -e DB_PASSWORD=postgres \
             "${{ secrets.DOCKERHUB_USERNAME }}/${IMAGE_NAME}:${{ steps.vars.outputs.tag }}"
 
           echo "Waiting for container to be ready..."
           for i in $(seq 1 10); do
             if curl --silent --fail http://localhost:8080/health; then
               echo "Container is healthy"
-              docker rm -f smoke
+              docker rm -f smoke smoke-postgres
+              docker network rm smoke-test-net
               exit 0
             fi
             echo "Attempt $i failed, retrying in 2s..."
@@ -122,7 +139,8 @@ jobs:
 
           echo "Container failed to respond after 10 attempts"
           docker logs smoke
-          docker rm -f smoke
+          docker rm -f smoke smoke-postgres
+          docker network rm smoke-test-net
           exit 1
 
       - name: Push image
