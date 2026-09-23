@@ -8,6 +8,13 @@ COPY src ./src
 # ---- Runtime stage ----
 FROM node:20-alpine
 RUN addgroup -g 10001 nodeapp && adduser -D -u 10001 -G nodeapp nodeapp
+# Apply upstream Alpine security patches (e.g. OpenSSL CVEs), then drop the
+# npm/npx/corepack CLIs: the app is started via `node` directly, and npm
+# bundles its own vulnerable transitive deps (tar, minimatch, glob, ...)
+# that would otherwise sit unused in the final image.
+RUN apk update && apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+              /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /app
 COPY --from=build --chown=nodeapp:nodeapp /app/node_modules ./node_modules
 COPY --from=build --chown=nodeapp:nodeapp /app/src ./src
