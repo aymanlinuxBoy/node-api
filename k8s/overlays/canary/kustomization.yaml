@@ -1,13 +1,10 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: devsecops-canary
-
 resources:
   - ../../base/canary
-
 images:
   - name: node-api-poc
     newName: DOCKERHUB_USERNAME/node-api-poc
-    newTag: "1.0.0"
+    newTag: "f77ae1992a11"
