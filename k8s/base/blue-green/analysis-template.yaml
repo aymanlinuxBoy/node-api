@@ -7,13 +7,13 @@ metadata:
 spec:
   metrics:
     - name: prometheus-up
-      interval: 10s
+      interval: 20s
       count: 3
       successCondition: result[0] > 0
-      failureLimit: 1
+      failureLimit: 2
       provider:
         prometheus:
           # NOTE: adjust to your cluster's Prometheus service address.
           address: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
           query: |
-            sum(up{job="node-api-poc-bg"})
+            sum(up)
