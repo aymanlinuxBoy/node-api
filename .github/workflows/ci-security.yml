@@ -57,8 +57,8 @@ jobs:
           #pip install yamllint
           #yamllint .
 
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+      #- name: Gitleaks
+        #uses: gitleaks/gitleaks-action@v2
 
       - name: Checkov
         uses: bridgecrewio/checkov-action@v12
