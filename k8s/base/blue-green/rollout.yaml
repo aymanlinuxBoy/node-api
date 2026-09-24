@@ -1,0 +1,107 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: node-api-poc-bg
+  namespace: devsecops-bg
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: node-api-poc-bg
+  template:
+    metadata:
+      labels:
+        app: node-api-poc-bg
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: node-api-poc-bg
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: node-api-poc
+          image: node-api-poc:1.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: node-api-poc-bg-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: node-api-poc-bg-config
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: node-api-poc-bg-config
+                  key: DB_NAME
+
+          volumeMounts:
+            - name: db-credentials
+              mountPath: /var/run/secrets/db
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 96Mi
+            limits:
+              cpu: 300m
+              memory: 192Mi
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+      volumes:
+        - name: db-credentials
+          secret:
+            secretName: node-api-poc-bg-db-credentials
+            defaultMode: 0400
+        - name: tmp
+          emptyDir: {}
+
+  strategy:
+    blueGreen:
+      activeService: node-api-poc-bg-active
+      previewService: node-api-poc-bg-preview
+      autoPromotionEnabled: true
+      prePromotionAnalysis:
+        templates:
+          - templateName: node-api-poc-bg-success-rate
+      scaleDownDelaySeconds: 30
