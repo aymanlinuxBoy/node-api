@@ -1,6 +1,7 @@
+---
 name: CI Security Pipeline
 
-on:
+'on':
   push:
     branches:
       - main
@@ -82,14 +83,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all tags
+          fetch-depth: 0
 
       - name: Determine image tag
         id: vars
         run: |
-           IMAGE_TAG="${GITHUB_SHA::12}"
-           echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-           echo "Using image tag: ${IMAGE_TAG}"
+          IMAGE_TAG="${GITHUB_SHA::12}"
+          echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: ${IMAGE_TAG}"
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -113,7 +114,6 @@ jobs:
 
       - name: Smoke test
         run: |
-          # Create network and postgres service for smoke test
           docker network create smoke-test-net || true
           docker run -d --name smoke-postgres \
             --network smoke-test-net \
@@ -121,7 +121,7 @@ jobs:
             -e POSTGRES_DB=testdb \
             postgres:16-alpine
 
-          sleep 5  # Wait for postgres to be ready
+          sleep 5
 
           docker run -d --name smoke \
             --network smoke-test-net \
@@ -151,20 +151,19 @@ jobs:
           docker network rm smoke-test-net
           exit 1
 
-
       - name: Push image
         run: |
-           IMAGE_TAG="${{ steps.vars.outputs.tag }}"
-           REGISTRY="${{ secrets.DOCKERHUB_USERNAME }}"
+          IMAGE_TAG="${{ steps.vars.outputs.tag }}"
+          REGISTRY="${{ secrets.DOCKERHUB_USERNAME }}"
 
-           docker push "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+          docker push "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-           echo "Pushed ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "Pushed ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
 
       - name: Install yq
         uses: mikefarah/yq@v4
 
-      - name: Update canary overlay image tag
+      - name: Update blue-green overlay image tag
         run: |
           yq -i \
             '.images[0].newTag = "${{ steps.vars.outputs.tag }}"' \
@@ -181,12 +180,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add k8s/overlays/canary/kustomization.yaml
+          git add k8s/overlays/blue-green/kustomization.yaml
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
 
-          git commit -m "chore: update canary image tag to ${{ steps.vars.outputs.tag }}"
+          git commit -m "chore: update blue-green image tag to ${{ steps.vars.outputs.tag }}"
           git push
