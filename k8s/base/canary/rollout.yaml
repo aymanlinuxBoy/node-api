@@ -60,13 +60,13 @@ spec:
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: node-api-poc-bg-db-credentials
+                  name: node-api-poc-canary-db-credentials
                   key: DB_USER
 
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                   name: node-api-poc-bg-db-credentials
+                   name: node-api-poc-canary-db-credentials
                    key: DB_PASSWORD
 
           volumeMounts:
