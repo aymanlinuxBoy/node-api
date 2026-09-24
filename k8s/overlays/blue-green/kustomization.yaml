@@ -9,5 +9,5 @@ resources:
 
 images:
   - name: node-api-poc
-    newName: DOCKERHUB_USERNAME/node-api-poc
+    newName: aimocont2020/node-api-poc
     newTag: "1.0.0"
