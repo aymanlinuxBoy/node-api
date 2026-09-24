@@ -55,6 +55,18 @@ spec:
                   name: node-api-poc-bg-config
                   key: DB_NAME
 
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: node-api-poc-bg-db-credentials
+                  key: DB_USER
+
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: node-api-poc-bg-db-credentials
+                key: DB_PASSWORD
+
           volumeMounts:
             - name: db-credentials
               mountPath: /var/run/secrets/db
