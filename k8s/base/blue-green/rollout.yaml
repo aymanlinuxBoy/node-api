@@ -64,8 +64,8 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                   name: node-api-poc-bg-db-credentials
-                   key: DB_PASSWORD
+                  name: node-api-poc-bg-db-credentials
+                  key: DB_PASSWORD
 
           volumeMounts:
             - name: db-credentials
