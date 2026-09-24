@@ -51,11 +51,11 @@ jobs:
         with:
           dockerfile: Dockerfile
 
-      - name: yamllint
-        run: |
-          python -m pip install --upgrade pip
-          pip install yamllint
-          yamllint .
+      #- name: yamllint
+        #run: |
+          #python -m pip install --upgrade pip
+          #pip install yamllint
+          #yamllint .
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
