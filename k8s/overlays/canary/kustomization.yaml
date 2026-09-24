@@ -7,4 +7,4 @@ resources:
 images:
   - name: node-api-poc
     newName: DOCKERHUB_USERNAME/node-api-poc
-    newTag: "3a7d66354c39"
+    newTag: "7c0a75ec2f84"
