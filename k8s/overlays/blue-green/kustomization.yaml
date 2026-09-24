@@ -1,13 +1,10 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: devsecops-bg
-
 resources:
   - ../../base/blue-green
-
 images:
   - name: node-api-poc
     newName: aimocont2020/node-api-poc
-    newTag: "3a7d66354c39"
+    newTag: "2a7ca77deec2"
