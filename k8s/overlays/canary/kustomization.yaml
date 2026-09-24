@@ -6,5 +6,5 @@ resources:
   - ../../base/canary
 images:
   - name: node-api-poc
-    newName: DOCKERHUB_USERNAME/node-api-poc
+    newName: aimocont2020/node-api-poc
     newTag: "3ab3469f5a7d"
