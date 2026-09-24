@@ -163,11 +163,15 @@ jobs:
       - name: Install yq
         uses: mikefarah/yq@v4
 
-      - name: Update blue-green overlay image tag
+      - name: Update blue-green & canary overlay image tag
         run: |
           yq -i \
             '.images[0].newTag = "${{ steps.vars.outputs.tag }}"' \
             k8s/overlays/blue-green/kustomization.yaml
+
+          yq -i \
+            '.images[0].newTag = "${{ steps.vars.outputs.tag }}"' \
+            k8s/overlays/canary/kustomization.yaml
 
       - name: Validate Kustomize rendering
         run: |
