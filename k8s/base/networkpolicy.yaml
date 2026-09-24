@@ -27,7 +27,9 @@ spec:
         - protocol: TCP
           port: 5432
     - to:
-        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
       ports:
         - protocol: TCP
           port: 53
