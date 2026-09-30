@@ -54,9 +54,27 @@ docker run --rm -v "$(pwd)":/app -w /app node:20-alpine npm test
 
 1. **lint-and-security**: `npm test`, `npm audit`, Hadolint, yamllint, Gitleaks, Checkov
 2. **build-scan-push** (main branch only, after job 1 passes):
-   Build → Trivy scan → Smoke test (`/health`, no DB required) → Push to Docker Hub
+   Build → Trivy scan → Smoke test (`/health`, no DB required) → Push to Docker Hub →
+   **sign the pushed digest with cosign (keyless)** → verify the signature
 
 Required repo secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
+
+### Image signing
+
+Images are signed with [cosign](https://docs.sigstore.dev/cosign/overview/) using
+**keyless signing**: the workflow's GitHub Actions OIDC identity is exchanged for a
+short-lived certificate from Sigstore's public Fulcio CA, and the signature +
+certificate are recorded in the public Rekor transparency log. There's no private
+signing key to store or rotate as a secret.
+
+To verify an image was built by this repo's CI before pulling/deploying it:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp "^https://github.com/aymanlinuxBoy/node-api/\.github/workflows/ci-security\.yml@refs/heads/main$" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  aimocont2020/node-api-poc@sha256:<digest>
+```
 
 ## Deploying to Kubernetes
 

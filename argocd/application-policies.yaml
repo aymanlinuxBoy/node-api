@@ -1,0 +1,28 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: node-api-poc-policies
+  namespace: argocd
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/aymanlinuxBoy/node-api.git
+    targetRevision: main
+    path: k8s/policies
+
+  destination:
+    name: downstream
+    # ImageValidatingPolicy is cluster-scoped; this namespace is just
+    # ArgoCD's bookkeeping association, not where the resource lives.
+    namespace: kyverno
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+    syncOptions:
+      - CreateNamespace=true
