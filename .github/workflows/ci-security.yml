@@ -78,6 +78,10 @@ jobs:
 
     permissions:
       contents: write
+      # Required for keyless cosign signing: lets the job mint a short-lived
+      # OIDC token that Fulcio exchanges for a signing certificate tied to
+      # this workflow's identity, with no long-lived private key to manage.
+      id-token: write
 
     steps:
       - name: Checkout
@@ -152,13 +156,32 @@ jobs:
           exit 1
 
       - name: Push image
+        id: push
         run: |
           IMAGE_TAG="${{ steps.vars.outputs.tag }}"
           REGISTRY="${{ secrets.DOCKERHUB_USERNAME }}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
 
-          docker push "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+          DIGEST="$(docker push "${IMAGE}" | grep -oE 'sha256:[a-f0-9]{64}')"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
-          echo "Pushed ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "Pushed ${IMAGE}@${DIGEST}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Sign image (keyless, Sigstore)
+        run: |
+          IMAGE_REF="${{ secrets.DOCKERHUB_USERNAME }}/${IMAGE_NAME}@${{ steps.push.outputs.digest }}"
+          cosign sign --yes "${IMAGE_REF}"
+
+      - name: Verify signature
+        run: |
+          IMAGE_REF="${{ secrets.DOCKERHUB_USERNAME }}/${IMAGE_NAME}@${{ steps.push.outputs.digest }}"
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/aymanlinuxBoy/node-api/\.github/workflows/ci-security\.yml@refs/heads/main$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE_REF}"
 
       - name: Install yq
         uses: mikefarah/yq@v4
