@@ -4,6 +4,7 @@ kind: Kustomization
 namespace: devsecops-canary
 resources:
   - ../../base/canary
+  - namespace.yaml
 images:
   - name: node-api-poc
     newName: aimocont2020/node-api-poc

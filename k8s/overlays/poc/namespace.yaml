@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devsecops
+  labels:
+    # Safe rollout: enforce only baseline (blocks privileged/host-namespace
+    # pods, which nothing here uses) while auditing/warning against the
+    # stricter restricted profile. node-api-poc's own pods already comply
+    # with restricted; devsecops-demo does not yet, so enforce stays at
+    # baseline until that's addressed.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

@@ -6,6 +6,7 @@ namespace: devsecops
 
 resources:
   - ../../base
+  - namespace.yaml
 
 images:
   - name: node-api-poc

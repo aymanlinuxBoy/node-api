@@ -4,6 +4,7 @@ kind: Kustomization
 namespace: devsecops-bg
 resources:
   - ../../base/blue-green
+  - namespace.yaml
 images:
   - name: node-api-poc
     newName: aimocont2020/node-api-poc
