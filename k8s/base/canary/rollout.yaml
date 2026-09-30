@@ -1,3 +1,4 @@
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -49,7 +50,7 @@ spec:
                 configMapKeyRef:
                   name: node-api-poc-canary-config
                   key: DB_PORT
-                  
+
             - name: DB_NAME
               valueFrom:
                 configMapKeyRef:
@@ -66,8 +67,8 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                   name: node-api-poc-canary-db-credentials
-                   key: DB_PASSWORD
+                  name: node-api-poc-canary-db-credentials
+                  key: DB_PASSWORD
 
           volumeMounts:
             - name: db-credentials
