@@ -2,7 +2,7 @@ apiVersion: fleet.cattle.io/v1alpha1
 kind: GitRepo
 metadata:
   name: fluent-bit
-  namespace: fleet-local    # change to fleet-local /fleet-default  if targeting the local cluster only
+  namespace: fleet-default
 spec:
   repo: https://github.com/aymanlinuxBoy/node-api.git
   branch: main
