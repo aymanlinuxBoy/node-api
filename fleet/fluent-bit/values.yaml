@@ -100,7 +100,7 @@ config:
         Host              loki-gateway.logging.svc.cluster.local
         Port              80
         Labels            job=fluent-bit, source=container-logs
-        Auto_K8S_Labels   On
+        auto_kubernetes_labels On
         Line_Format       json
 
     [OUTPUT]
