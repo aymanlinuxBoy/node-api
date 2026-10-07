@@ -1,0 +1,13 @@
+defaultNamespace: logging
+
+helm:
+  repo: https://fluent.github.io/helm-charts
+  chart: fluent-bit
+  version: "0.49.0"
+  releaseName: fluent-bit
+  valuesFiles:
+    - values.yaml
+
+targets:
+  - name: default
+    clusterSelector: {}

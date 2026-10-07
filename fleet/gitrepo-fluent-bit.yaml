@@ -1,0 +1,15 @@
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: fluent-bit
+  namespace: fleet-default   # change to fleet-local if targeting the local cluster only
+spec:
+  repo: https://github.com/aymanlinuxBoy/node-api.git
+  branch: main
+  paths:
+    - fleet/fluent-bit
+  # Uncomment and fill in if the repo is private:
+  # clientSecretName: git-auth-secret
+  targets:
+    - name: default
+      clusterSelector: {}
