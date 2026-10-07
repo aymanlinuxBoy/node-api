@@ -78,6 +78,16 @@ config:
         Kube_CA_File      /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         Kube_Token_File   /var/run/secrets/kubernetes.io/serviceaccount/token
 
+    [INPUT]
+        Name              fluentbit_metrics
+        Tag               metrics.fluentbit
+        Scrape_Interval   15
+
+    [INPUT]
+        Name              node_exporter_metrics
+        Tag               metrics.node
+        Scrape_Interval   15
+
   ## Kubernetes metadata enrichment — only for container logs, not events
   filters: |
     [FILTER]
@@ -111,8 +121,19 @@ config:
         Labels            job=fluent-bit, source=k8s-events
         Line_Format       json
 
+    [OUTPUT]
+        Name                prometheus_exporter
+        Match               metrics.*
+        Host                0.0.0.0
+        Port                2021
+
   ## Expose /api/v1/health for readiness/liveness probes
   extraFiles: {}
+
+extraPorts:
+  - name: metrics
+    containerPort: 2021
+    protocol: TCP
 
 luaScripts: {}
 
