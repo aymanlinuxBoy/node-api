@@ -17,7 +17,7 @@ serviceAccount:
 rbac:
   create: true
   nodeAccess: true
-  eventsAccess: false
+  eventsAccess: true
 
 podSecurityContext:
   {}
@@ -78,11 +78,11 @@ config:
         Kube_CA_File      /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         Kube_Token_File   /var/run/secrets/kubernetes.io/serviceaccount/token
 
-  ## Kubernetes metadata enrichment
+  ## Kubernetes metadata enrichment — only for container logs, not events
   filters: |
     [FILTER]
         Name                kubernetes
-        Match               kube.*
+        Match               kube.var.log.*
         Kube_URL            https://kubernetes.default.svc:443
         Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
