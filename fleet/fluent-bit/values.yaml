@@ -92,12 +92,24 @@ config:
         K8S-Logging.Parser  On
         K8S-Logging.Exclude On
 
-  ## Output — stdout for now; replace with your backend (Loki, Elasticsearch, etc.)
+  ## Ship logs to Loki via the gateway
   outputs: |
     [OUTPUT]
-        Name   stdout
-        Match  *
-        Format json_lines
+        Name              loki
+        Match             kube.*
+        Host              loki-gateway.logging.svc.cluster.local
+        Port              80
+        Labels            job=fluent-bit, source=container-logs
+        Auto_K8S_Labels   On
+        Line_Format       json
+
+    [OUTPUT]
+        Name              loki
+        Match             kube.events
+        Host              loki-gateway.logging.svc.cluster.local
+        Port              80
+        Labels            job=fluent-bit, source=k8s-events
+        Line_Format       json
 
   ## Expose /api/v1/health for readiness/liveness probes
   extraFiles: {}
