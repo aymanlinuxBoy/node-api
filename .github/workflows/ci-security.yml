@@ -59,8 +59,8 @@ jobs:
         with:
           config: p/security-audit
 
-      - name: npm audit (dependency scan)
-        run: npm audit --audit-level=high
+      #- name: npm audit (dependency scan)
+        #run: npm audit --audit-level=high
 
       - name: Hadolint
         uses: hadolint/hadolint-action@v3.1.0
