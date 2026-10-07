@@ -101,3 +101,16 @@ updateStrategy:
   type: RollingUpdate
   rollingUpdate:
     maxUnavailable: 1
+
+## Increase inotify limits before Fluent Bit starts — fixes "Too many open files" (errno=24)
+initContainers:
+  - name: increase-inotify-limits
+    image: busybox
+    securityContext:
+      privileged: true
+    command:
+      - sh
+      - -c
+      - |
+        sysctl -w fs.inotify.max_user_instances=8192
+        sysctl -w fs.inotify.max_user_watches=524288
