@@ -11,3 +11,29 @@ helm:
 targets:
   - name: all
     clusterGroup: all-clusters
+    helm:
+      values:
+        config:
+          outputs: |
+            [OUTPUT]
+                Name              loki
+                Match             kube.var.log.*
+                Host              loki-gateway.logging.svc.cluster.local
+                Port              80
+                Labels            job=fluent-bit, source=container-logs, cluster=${fleet.clusterLabels.env}
+                auto_kubernetes_labels On
+                Line_Format       json
+
+            [OUTPUT]
+                Name              loki
+                Match             kube.events
+                Host              loki-gateway.logging.svc.cluster.local
+                Port              80
+                Labels            job=fluent-bit, source=k8s-events, cluster=${fleet.clusterLabels.env}
+                Line_Format       json
+
+            [OUTPUT]
+                Name              prometheus_exporter
+                Match             metrics.*
+                Host              0.0.0.0
+                Port              2021
