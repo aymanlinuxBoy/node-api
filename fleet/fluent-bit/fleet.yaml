@@ -51,7 +51,7 @@ targets:
             [OUTPUT]
                 Name              loki
                 Match             kube.var.log.*
-                Host              176.57.189.45
+                Host              10.60.0.200
                 Port              3100
                 Labels            job=fluent-bit, source=container-logs, cluster=local
                 auto_kubernetes_labels On
@@ -60,7 +60,7 @@ targets:
             [OUTPUT]
                 Name              loki
                 Match             kube.events
-                Host              176.57.189.45
+                Host              10.60.0.200
                 Port              3100
                 Labels            job=fluent-bit, source=k8s-events, cluster=local
                 Line_Format       json
