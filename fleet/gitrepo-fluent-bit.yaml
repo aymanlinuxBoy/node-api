@@ -9,24 +9,6 @@ spec:
   paths:
     - fleet/fluent-bit
   targets:
-    - name: downstream
-      clusterSelector:
-        matchLabels:
-          env: downstream
----
-apiVersion: fleet.cattle.io/v1alpha1
-kind: GitRepo
-metadata:
-  name: fluent-bit
-  namespace: fleet-local
-spec:
-  repo: https://github.com/aymanlinuxBoy/node-api.git
-  branch: main
-  paths:
-    - fleet/fluent-bit
-  targets:
-    - name: local
-      clusterSelector:
-        matchLabels:
-          env: local
+    - name: default
+      clusterSelector: {}
 
