@@ -9,5 +9,5 @@ helm:
     - values.yaml
 
 targets:
-  - name: default
-    clusterSelector: {}
+  - name: all
+    clusterGroup: all-clusters

@@ -1,0 +1,14 @@
+apiVersion: fleet.cattle.io/v1alpha1
+kind: ClusterGroup
+metadata:
+  name: all-clusters
+  namespace: fleet-default
+spec:
+  selector:
+    matchExpressions:
+      - key: env
+        operator: In
+        values:
+          - downstream
+          - staging
+          - local
