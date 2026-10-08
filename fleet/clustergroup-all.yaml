@@ -11,3 +11,4 @@ spec:
         values:
           - downstream
           - local
+          - upstream
