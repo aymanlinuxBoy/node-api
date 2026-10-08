@@ -1,0 +1,15 @@
+defaultNamespace: metallb-system
+
+helm:
+  repo: https://metallb.github.io/metallb
+  chart: metallb
+  version: "0.14.9"
+  releaseName: metallb
+  valuesFiles:
+    - values.yaml
+
+targets:
+  - name: downstream
+    clusterSelector:
+      matchLabels:
+        env: downstream

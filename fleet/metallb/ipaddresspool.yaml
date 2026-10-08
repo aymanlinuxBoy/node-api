@@ -1,0 +1,19 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: loki-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 176.57.189.45/32
+    - 94.250.202.136/32
+    - 185.197.249.98/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: loki-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - loki-pool
