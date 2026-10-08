@@ -11,4 +11,18 @@ spec:
   targets:
     - name: default
       clusterSelector: {}
+---
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: fluent-bit
+  namespace: fleet-local
+spec:
+  repo: https://github.com/aymanlinuxBoy/node-api.git
+  branch: main
+  paths:
+    - fleet/fluent-bit
+  targets:
+    - name: local
+      clusterSelector: {}
 
