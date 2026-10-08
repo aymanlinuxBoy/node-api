@@ -9,5 +9,64 @@ helm:
     - values.yaml
 
 targets:
-  - name: default
-    clusterSelector: {}
+  - name: downstream
+    clusterSelector:
+      matchLabels:
+        env: downstream
+    helm:
+      values:
+        config:
+          outputs: |
+            [OUTPUT]
+                Name              loki
+                Match             kube.var.log.*
+                Host              loki-gateway.logging.svc.cluster.local
+                Port              80
+                Labels            job=fluent-bit, source=container-logs, cluster=downstream
+                auto_kubernetes_labels On
+                Line_Format       json
+
+            [OUTPUT]
+                Name              loki
+                Match             kube.events
+                Host              loki-gateway.logging.svc.cluster.local
+                Port              80
+                Labels            job=fluent-bit, source=k8s-events, cluster=downstream
+                Line_Format       json
+
+            [OUTPUT]
+                Name                prometheus_exporter
+                Match               metrics.*
+                Host                0.0.0.0
+                Port                2021
+
+  - name: local
+    clusterSelector:
+      matchLabels:
+        env: local
+    helm:
+      values:
+        config:
+          outputs: |
+            [OUTPUT]
+                Name              loki
+                Match             kube.var.log.*
+                Host              loki-gateway.logging.svc.cluster.local
+                Port              80
+                Labels            job=fluent-bit, source=container-logs, cluster=local
+                auto_kubernetes_labels On
+                Line_Format       json
+
+            [OUTPUT]
+                Name              loki
+                Match             kube.events
+                Host              loki-gateway.logging.svc.cluster.local
+                Port              80
+                Labels            job=fluent-bit, source=k8s-events, cluster=local
+                Line_Format       json
+
+            [OUTPUT]
+                Name                prometheus_exporter
+                Match               metrics.*
+                Host                0.0.0.0
+                Port                2021
