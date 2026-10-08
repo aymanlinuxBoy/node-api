@@ -132,6 +132,7 @@ config:
 
 extraPorts:
   - name: metrics
+    port: 2021
     containerPort: 2021
     protocol: TCP
 
