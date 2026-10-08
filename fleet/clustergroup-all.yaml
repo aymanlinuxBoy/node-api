@@ -10,5 +10,4 @@ spec:
         operator: In
         values:
           - downstream
-          - staging
           - local
