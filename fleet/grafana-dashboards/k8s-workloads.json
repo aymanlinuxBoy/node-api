@@ -1,0 +1,318 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_LOKI",
+      "label": "Loki",
+      "type": "datasource",
+      "pluginId": "loki",
+      "pluginName": "Loki"
+    }
+  ],
+  "title": "Kubernetes Workloads — Deployments & Rollouts",
+  "uid": "k8s-workloads",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["kubernetes", "deployments", "rollouts", "fluent-bit"],
+  "templating": {
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+        "query": "label_values({job=\"fluent-bit\"}, cluster)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+        "query": "label_values({job=\"fluent-bit\", cluster=~\"$cluster\", source=\"k8s-events\"} | json, namespace_name)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      },
+      {
+        "name": "deployment",
+        "label": "Deployment",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+        "query": "label_values({job=\"fluent-bit\", cluster=~\"$cluster\", source=\"k8s-events\"} | json, regarding_name)",
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Rollout Events",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#3B82F6", "mode": "fixed" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | reason=~\"Scaled|RollingUpdate|Progressing|NewReplicaSet\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Failed Deployments",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#22C55E", "value": null },
+              { "color": "#F59E0B", "value": 1 },
+              { "color": "#EF4444", "value": 5 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | reason=~\"Failed|ErrImagePull|ImagePullBackOff|CrashLoopBackOff\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Pod Restarts / OOMKills",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#22C55E", "value": null },
+              { "color": "#F59E0B", "value": 1 },
+              { "color": "#EF4444", "value": 3 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | reason=~\"OOMKilling|BackOff|Killing\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Successful Pulls / Scheduled",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#22C55E", "mode": "fixed" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | reason=~\"Pulled|Scheduled|Started\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Rollout Activity Over Time",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0 },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Scaled Up/Down" }, "properties": [{ "id": "color", "value": { "fixedColor": "#3B82F6", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Failed" }, "properties": [{ "id": "color", "value": { "fixedColor": "#EF4444", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "OOMKill/BackOff" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F59E0B", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Scheduled/Started" }, "properties": [{ "id": "color", "value": { "fixedColor": "#22C55E", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | namespace_name=~\"$namespace\" | reason=~\"Scaled|RollingUpdate|Progressing|NewReplicaSet\" [$__interval]))",
+          "legendFormat": "Scaled Up/Down",
+          "queryType": "range"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | namespace_name=~\"$namespace\" | reason=~\"Failed|ErrImagePull|ImagePullBackOff|CrashLoopBackOff\" [$__interval]))",
+          "legendFormat": "Failed",
+          "queryType": "range"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | namespace_name=~\"$namespace\" | reason=~\"OOMKilling|BackOff|Killing\" [$__interval]))",
+          "legendFormat": "OOMKill/BackOff",
+          "queryType": "range"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | namespace_name=~\"$namespace\" | reason=~\"Pulled|Scheduled|Started\" [$__interval]))",
+          "legendFormat": "Scheduled/Started",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Replica Scale Events Over Time",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "short",
+          "color": { "fixedColor": "#3B82F6", "mode": "fixed" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum by (cluster) (count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | namespace_name=~\"$namespace\" | reason=\"ScalingReplicaSet\" [$__interval]))",
+          "legendFormat": "{{cluster}}",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "Events by Namespace",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "orientation": "horizontal",
+        "legend": { "displayMode": "none" },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "fixedColor": "#3B82F6", "mode": "fixed" },
+          "custom": { "fillOpacity": 80 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum by (namespace_name) (count_over_time({job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json [$__range]))",
+          "legendFormat": "{{namespace_name}}",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "logs",
+      "title": "Deployment & Rollout Events",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 9 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | namespace_name=~\"$namespace\" | reason=~\"ScalingReplicaSet|RollingUpdate|Progressing|NewReplicaSet|DeploymentRollout\"",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "Failed & Crash Events",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 9 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | namespace_name=~\"$namespace\" | reason=~\"Failed|BackOff|OOMKilling|ErrImagePull|ImagePullBackOff|CrashLoopBackOff|Killing\"",
+          "queryType": "range"
+        }
+      ]
+    }
+  ]
+}
