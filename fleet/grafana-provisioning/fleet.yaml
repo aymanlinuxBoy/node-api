@@ -1,0 +1,7 @@
+defaultNamespace: monitoring
+
+targets:
+  - name: downstream
+    clusterSelector:
+      matchLabels:
+        env: downstream
