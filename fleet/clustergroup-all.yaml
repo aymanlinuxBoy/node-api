@@ -1,3 +1,4 @@
+---
 apiVersion: fleet.cattle.io/v1alpha1
 kind: ClusterGroup
 metadata:

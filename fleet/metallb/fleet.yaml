@@ -1,3 +1,4 @@
+---
 defaultNamespace: metallb-system
 
 helm:
