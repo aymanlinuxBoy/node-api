@@ -11,4 +11,4 @@ resources:
 images:
   - name: node-api-poc
     newName: aimocont2020/node-api-poc
-    newTag: "1.0.0"
+    newTag: "d2dbfc4eb04f"

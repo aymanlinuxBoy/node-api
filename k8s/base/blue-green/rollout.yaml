@@ -24,6 +24,16 @@ spec:
         runAsUser: 10001
         seccompProfile:
           type: RuntimeDefault
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - vmi3565261
       containers:
         - name: node-api-poc
           image: node-api-poc:1.0.0
