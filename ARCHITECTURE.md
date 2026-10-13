@@ -935,6 +935,22 @@ curl -sS http://<UPSTREAM_NODE_IP>:<VAULT_NODEPORT>/v1/sys/health
 
 ### 6. **Secret Rotation (External Secrets Operator + Reloader)**
 
+**The Problem**
+
+Without Reloader, pods continued using in-memory cached secrets even after Vault rotated them:
+- Vault secret updated (e.g., DB password rotation)
+- External Secrets Operator synced the change to K8s Secret
+- BUT: running pods still had old secret values (cached in memory)
+- Application connections failed or used stale credentials
+- Pod restart was manual and required human intervention
+
+**Root Cause**
+
+Reloader wasn't configured to:
+1. Detect Kubernetes Secret changes (resourceVersion increments)
+2. Support Argo Rollouts (only standard Deployments were supported by default)
+3. Trigger automatic pod restarts (opt-in annotations were missing)
+
 **Complete Secret Rotation Architecture:**
 
 ```
@@ -954,15 +970,17 @@ Vault KV Secret Updated (manual or automatic)
             │
             └─ Updates K8s Secret: node-api-poc-bg-db-credentials
                 │
-                └─ ResourceVersion increments
+                └─ ResourceVersion increments (triggers Reloader)
                     │
                     └─ Reloader detects Secret change
                         │
-                        └─ Triggers Argo Rollout restart
+                        └─ Triggers Argo Rollout restart (rolling update)
                             │
-                            └─ Pods replaced (rolling update)
+                            └─ Old pods terminated, new pods created
                                 │
-                                └─ New pods mount fresh secret
+                                └─ New pods mount fresh secret from K8s
+                                    │
+                                    └─ Application gets new credentials
 ```
 
 **Component Details:**
@@ -1226,12 +1244,41 @@ vault read auth/approle/role/eso-postgres
 vault kv get secret/devsecops-bg/postgres
 ```
 
+**Key Learning: Three Essential Components**
+
+The Reloader issue required **all three** of these to work together:
+
+1. **Argo Rollouts Support:** Reloader must be installed with `--set reloader.isArgoRollouts=true`
+   - Default Reloader only watches standard Deployments
+   - Without this flag, Reloader cannot restart Argo Rollouts
+
+2. **Opt-In Annotations:** Argo Rollout must be annotated for Reloader to watch it
+   - `reloader.stakater.com/auto: "true"` — Watch referenced Secrets/ConfigMaps
+   - `reloader.stakater.com/rollout-strategy: "restart"` — Restart without template changes (GitOps-safe)
+   - Missing either annotation = Reloader ignores the Rollout
+
+3. **Secret Reference in Pod Spec:** Pod must reference the Secret that ESO creates
+   - Reloader watches Secrets **referenced** in pod env vars or volumes
+   - If pod doesn't reference the Secret, Reloader has nothing to watch
+   - ESO updates K8s Secret → Reloader detects reference → triggers restart
+
+**Before fix:** Vault rotated secrets, ESO updated K8s Secret, but pods kept using old values (no restart)
+**After fix:** Vault → ESO → K8s Secret (resourceVersion +1) → Reloader → Pod restart → Fresh secrets ✅
+
+**Current Implementation Status:**
+
+- ✅ Reloader: Installed with Argo Rollouts support (`reloader.isArgoRollouts=true`)
+- ✅ ESO: Syncing Vault → K8s Secret every 1 minute (refresh interval)
+- ✅ Argo Rollout: Annotated with `reloader.stakater.com/auto: "true"` and `rollout-strategy: "restart"`
+- ✅ Pod: References Secret via `secretKeyRef` in env vars
+- ✅ Result: Automatic secret rotation with zero-downtime pod restart
+
 **Known Limitations & Future Enhancements:**
 
-- **Current:** Static KV v2 secrets (manual password updates)
+- **Current:** Static KV v2 secrets (manual password updates in Vault)
 - **Future:** Dynamic PostgreSQL credentials via Database Secrets Engine (auto-generated, short-lived)
 - **Current:** 1-minute refresh interval (balance between latency and Vault load)
-- **Future:** Webhook-based immediate sync (when Vault secret changes)
+- **Future:** Webhook-based immediate sync (when Vault secret changes, notify immediately)
 
 ---
 
