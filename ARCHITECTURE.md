@@ -309,6 +309,9 @@ kind: Rollout
 metadata:
   name: node-api-poc-canary
   namespace: devsecops-canary
+  annotations:
+    reloader.stakater.com/auto: "true"
+    reloader.stakater.com/rollout-strategy: "restart"
 spec:
   replicas: 2
   strategy:
@@ -324,6 +327,21 @@ spec:
             - templateName: node-api-poc-canary-success-rate
       - setWeight: 100          # Step 3: Route 100% traffic
       # Service automatically switches to new version after success
+  template:
+    spec:
+      containers:
+      - name: app
+        env:
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: node-api-poc-canary-db-credentials
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: node-api-poc-canary-db-credentials
+              key: DB_PASSWORD
 ```
 
 **Rollout Flow:**
@@ -340,6 +358,35 @@ Developer commits → CI builds & signs image
             ├─ Analysis template checks success rate
             ├─ 100% traffic (2 new, 0 old)
             └─ Rollout completes, old pod deleted
+```
+
+**ExternalSecret Configuration (Canary Namespace):**
+
+Create an ExternalSecret to sync database credentials from Vault to canary namespace:
+
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-credentials
+  namespace: devsecops-canary
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: vault-store
+    kind: SecretStore
+  target:
+    name: node-api-poc-canary-db-credentials
+    creationPolicy: Owner
+  data:
+  - secretKey: DB_USER
+    remoteRef:
+      key: devsecops-canary/postgres
+      property: DB_USER
+  - secretKey: DB_PASSWORD
+    remoteRef:
+      key: devsecops-canary/postgres
+      property: DB_PASSWORD
 ```
 
 **Analysis Gate Configuration:**
@@ -364,13 +411,36 @@ spec:
     count: 2                     # Check 2 times before proceeding
 ```
 
-**Use Case:** Production deployments with safety gates, error rate monitoring, gradual traffic shifts
+**Secret Rotation & Automatic Pod Restart (Reloader Integration):**
+
+The canary Rollout is annotated for automatic pod restart when secrets rotate:
+- `reloader.stakater.com/auto: "true"` — Reloader watches referenced Secrets
+- `reloader.stakater.com/rollout-strategy: "restart"` — Restart pods without modifying rollout template
+
+When Vault secret rotates:
+1. External Secrets Operator updates K8s Secret: `node-api-poc-canary-db-credentials`
+2. Secret's resourceVersion increments
+3. Reloader detects the change and triggers canary Rollout restart
+4. Pods are restarted progressively (canary analysis gates still apply)
+5. New pods mount fresh secrets from updated K8s Secret
+
+This enables automatic secret rotation without manual intervention, maintaining the canary safety analysis gates.
+
+**Use Case:** Production deployments with safety gates, error rate monitoring, gradual traffic shifts, and automatic secret rotation
 
 **Verification:**
 ```bash
 kubectl get rollout node-api-poc-canary -n devsecops-canary
 kubectl describe rollout node-api-poc-canary -n devsecops-canary
 kubectl rollout history rollout node-api-poc-canary -n devsecops-canary
+
+# Verify Reloader annotations
+kubectl get rollout node-api-poc-canary -n devsecops-canary \
+  -o jsonpath='{.metadata.annotations}'
+
+# Verify ExternalSecret and K8s Secret
+kubectl get externalsecret postgres-credentials -n devsecops-canary
+kubectl get secret node-api-poc-canary-db-credentials -n devsecops-canary
 ```
 
 **Current Canary Status (from cluster):**
@@ -378,6 +448,7 @@ kubectl rollout history rollout node-api-poc-canary -n devsecops-canary
 - Replicas: 2
 - Strategy: 10% → 50% → 100% with success rate analysis
 - Status: Currently monitoring traffic distribution
+- Reloader: Enabled for automatic secret rotation with pod restart
 
 #### **3. Blue-Green Deployment (Instant Switchover)**
 
