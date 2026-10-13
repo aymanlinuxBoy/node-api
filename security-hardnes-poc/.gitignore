@@ -1,0 +1,5 @@
+# Never commit real webhook URLs, cluster dumps, or local working files.
+*.secret.yaml
+*.local.yaml
+*webhook*.txt
+calico-installation-*.yaml
