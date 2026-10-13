@@ -14,7 +14,9 @@ metadata:
 spec:
   validationActions:
     - Audit
-  failurePolicy: Fail
+  # Audit-first: don't block admissions if the policy evaluation itself errors.
+  # Set to Fail when validationActions is changed to Deny.
+  failurePolicy: Ignore
   matchConstraints:
     resourceRules:
       - apiGroups:
