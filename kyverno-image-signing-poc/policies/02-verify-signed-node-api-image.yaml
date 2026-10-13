@@ -13,8 +13,12 @@ metadata:
       Sigstore transparency log.
 spec:
   validationFailureAction: Audit
-  background: true
-  webhookTimeoutSeconds: 30
+  # Image-signature verification is admission-time work; background scanning
+  # is disabled for this policy.
+  background: false
+  webhookConfiguration:
+    failurePolicy: Fail
+    timeoutSeconds: 30
   rules:
     - name: verify-node-api-poc-signature
       match:
@@ -30,6 +34,7 @@ spec:
         - imageReferences:
             - "docker.io/aimocont2020/node-api-poc:*"
             - "aimocont2020/node-api-poc:*"
+          failureAction: Audit
           required: true
           mutateDigest: true
           verifyDigest: true
