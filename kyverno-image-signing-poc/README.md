@@ -10,7 +10,7 @@ Two separate policies provide two different controls:
 2. **Signature verification** — an `ImageValidatingPolicy` requires the Node API image to have a valid Cosign keyless signature from this exact workflow identity:
    `https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main`
 
-Both policies start with `validationActions: [Audit]`. The modern CEL policy API uses `Deny` to reject non-compliant admissions; this differs from the legacy `ClusterPolicy` API's `validationFailureAction: Enforce`.
+Both policies start with `validationActions: [Audit]` and `failurePolicy: Ignore` so policy-evaluation errors don't block the initial audit rollout. The modern CEL policy API uses `Deny` to reject non-compliant admissions; this differs from the legacy `ClusterPolicy` API's `validationFailureAction: Enforce`. Before enforcement, change `validationActions` to `Deny` and `failurePolicy` to `Fail` in both policies.
 
 > **Safety first:** This PR has not been applied to the live cluster. Start in Audit mode, confirm the currently deployed image digest was signed by the expected workflow, review the policy behavior, and only then change `validationActions` from `Audit` to `Deny`.
 
@@ -209,7 +209,7 @@ kubectl delete pod kyverno-signed-image-test -n devsecops --ignore-not-found
 
 Only after the unapproved image generates the expected violation, the signed image is accepted, and the currently deployed image digest is verified:
 
-1. In **both** manifests, change `spec.validationActions` from `[Audit]` to `[Deny]`.
+1. In **both** manifests, change `spec.validationActions` from `[Audit]` to `[Deny]` and change `spec.failurePolicy` from `Ignore` to `Fail`.
 2. Apply the two updated manifests.
 3. Repeat the negative test: `busybox:1.36` should be rejected at admission in the application namespace.
 4. Repeat the positive test with the verified Node API image.
@@ -224,7 +224,7 @@ Do not make these policies cluster-wide without separately designing an approved
 - **Server-side dry-run rejects a field:** check that the manifest uses `apiVersion: policies.kyverno.io/v1` and the relevant installed CRD is serving `v1`.
 - **Unapproved image is still admitted in Audit mode:** this is expected. Check the policy status and audit/reporting output. Change to `Deny` only after validation.
 - **Unapproved image remains admitted after switching to Deny:** verify that the policy is Ready, the Pod namespace matches the `matchConditions`, and the admission controller is healthy.
-- **Signature verification fails:** check the exact image digest, public registry reachability from Kyverno, Rekor reachability, the signer subject, and the issuer.
+- **Signature verification fails or evaluates with an error:** check the exact image digest, public registry reachability from Kyverno, Rekor reachability, the signer subject, and the issuer. In Audit mode, `failurePolicy: Ignore` avoids blocking admissions on an evaluation error, so inspect controller logs and confirm the signature manually before moving to `Deny`/`Fail`.
 - **A Pod includes a sidecar or init container:** this PoC intentionally treats these namespaces as application-image-only. Add and verify any additional images explicitly before enabling Deny.
 
 ## Cleanup
