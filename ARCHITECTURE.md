@@ -242,6 +242,314 @@ Git Repository (manifests/)
 
 ---
 
+### 3.5 **Deployment Strategies (Standard, Canary, Blue-Green)**
+
+The Node API POC implements three deployment strategies via Argo Rollouts, enabling progressive rollouts, canary testing, and zero-downtime deployments:
+
+**Directory Structure:**
+```
+k8s/
+├── base/
+│   ├── deployment.yaml              (Standard Kubernetes Deployment)
+│   ├── canary/
+│   │   ├── rollout.yaml            (Argo Rollouts - Canary)
+│   │   └── kustomization.yaml
+│   └── blue-green/
+│       ├── rollout.yaml            (Argo Rollouts - Blue-Green)
+│       └── kustomization.yaml
+└── overlays/
+    ├── poc/                         (Standard deployment)
+    ├── canary/                      (Canary variant)
+    └── blue-green/                  (Blue-green variant)
+```
+
+#### **1. Standard Deployment (Rolling Update)**
+
+**Type:** Kubernetes `Deployment` (default rolling update strategy)
+
+**Configuration:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-api-poc
+  namespace: devsecops
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate        # Default: replace pods incrementally
+    rollingUpdate:
+      maxSurge: 1              # Allow 1 extra pod during rollout
+      maxUnavailable: 0        # Keep all pods available
+```
+
+**Rollout Behavior:**
+- New pod starts → Old pod terminates
+- Gradual replacement (1 pod at a time with maxSurge=1)
+- Service traffic routes to both old and new versions during rollout
+- No traffic control or analysis gates
+
+**Use Case:** Standard deployments, non-critical updates, development clusters
+
+**Verification:**
+```bash
+kubectl get deployment node-api-poc -n devsecops -o wide
+kubectl rollout status deployment/node-api-poc -n devsecops
+kubectl rollout history deployment/node-api-poc -n devsecops
+```
+
+#### **2. Canary Deployment (Progressive Rollout with Analysis)**
+
+**Type:** Argo Rollouts `Rollout` with canary strategy
+
+**Configuration:**
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: node-api-poc-canary
+  namespace: devsecops-canary
+spec:
+  replicas: 2
+  strategy:
+    canary:
+      steps:
+      - setWeight: 10           # Step 1: Route 10% traffic to new version
+      - analysis:
+          templates:
+            - templateName: node-api-poc-canary-success-rate
+      - setWeight: 50           # Step 2: Route 50% traffic
+      - analysis:
+          templates:
+            - templateName: node-api-poc-canary-success-rate
+      - setWeight: 100          # Step 3: Route 100% traffic
+      # Service automatically switches to new version after success
+```
+
+**Rollout Flow:**
+```
+Developer commits → CI builds & signs image
+    │
+    └─ Fleet detects change → Updates image tag
+        │
+        └─ Argo Rollouts starts canary rollout
+            │
+            ├─ 10% traffic to canary pod (1 new, 1 old)
+            ├─ Analysis template checks success rate
+            ├─ 50% traffic (1 new, 1 old)
+            ├─ Analysis template checks success rate
+            ├─ 100% traffic (2 new, 0 old)
+            └─ Rollout completes, old pod deleted
+```
+
+**Analysis Gate Configuration:**
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: node-api-poc-canary-success-rate
+spec:
+  metrics:
+  - name: success-rate
+    provider:
+      prometheus:
+        address: http://prometheus:9090
+        query: |
+          rate(http_requests_total{job="node-api-poc"}[5m])
+          / 
+          rate(http_requests_total{job="node-api-poc"}[5m])
+    thresholdRange:
+      min: 0.99                 # Require 99% success rate
+    interval: 1m
+    count: 2                     # Check 2 times before proceeding
+```
+
+**Use Case:** Production deployments with safety gates, error rate monitoring, gradual traffic shifts
+
+**Verification:**
+```bash
+kubectl get rollout node-api-poc-canary -n devsecops-canary
+kubectl describe rollout node-api-poc-canary -n devsecops-canary
+kubectl rollout history rollout node-api-poc-canary -n devsecops-canary
+```
+
+**Current Canary Status (from cluster):**
+- Namespace: `devsecops-canary`
+- Replicas: 2
+- Strategy: 10% → 50% → 100% with success rate analysis
+- Status: Currently monitoring traffic distribution
+
+#### **3. Blue-Green Deployment (Instant Switchover)**
+
+**Type:** Argo Rollouts `Rollout` with blue-green strategy
+
+**Configuration:**
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: node-api-poc-bg
+  namespace: devsecops-bg
+spec:
+  replicas: 2
+  strategy:
+    blueGreen:
+      activeService: node-api-poc-bg-active      # Current live service
+      previewService: node-api-poc-bg-preview    # New version service
+      autoPromotionEnabled: true
+      prePromotionAnalysis:
+        templates:
+          - templateName: node-api-poc-bg-success-rate
+      scaleDownDelaySeconds: 30                  # Keep old version 30s before deletion
+```
+
+**Rollout Flow:**
+```
+Current State (Blue):
+    2 running pods (v1.0.0)
+    Service "active" → routes to v1.0.0
+    
+New Deployment (Green):
+    2 new pods (v1.1.0) created
+    Service "preview" → routes to v1.1.0 (for testing)
+    Pre-promotion analysis checks success rate
+    
+After Analysis Passes:
+    Service "active" switches → routes to v1.1.0
+    v1.0.0 pods remain for 30s (rollback window)
+    After 30s, v1.0.0 pods deleted
+    
+If Analysis Fails:
+    Service "active" remains → routes to v1.0.0
+    v1.1.0 pods deleted immediately
+```
+
+**Two Service Approach:**
+```yaml
+# Active service: what users see (production traffic)
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-api-poc-bg-active
+  namespace: devsecops-bg
+spec:
+  selector:
+    app: node-api-poc-bg
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+# Preview service: what we test before cutover
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-api-poc-bg-preview
+  namespace: devsecops-bg
+spec:
+  selector:
+    app: node-api-poc-bg
+  ports:
+  - port: 3000
+    targetPort: 3000
+```
+
+**Testing Flow:**
+```bash
+# 1. Deploy new version (automatically goes to preview service)
+kubectl set image rollout/node-api-poc-bg container=v1.1.0
+
+# 2. Test preview service
+curl http://node-api-poc-bg-preview:3000/health
+
+# 3. Run smoke tests
+kubectl run test-pod --image=curlimages/curl -- \
+  curl http://node-api-poc-bg-preview:3000/ready
+
+# 4. If tests pass, promotion happens automatically (or manually)
+kubectl argo rollout promote node-api-poc-bg -n devsecops-bg
+
+# 5. Rollback if needed (within 30s window)
+kubectl argo rollout abort node-api-poc-bg -n devsecops-bg
+```
+
+**Use Case:** Zero-downtime deployments, full version replacement, testing before cutover, instant rollback capability
+
+**Verification:**
+```bash
+kubectl get rollout node-api-poc-bg -n devsecops-bg -o wide
+kubectl get svc -n devsecops-bg node-api-poc-bg-active
+kubectl get svc -n devsecops-bg node-api-poc-bg-preview
+kubectl describe rollout node-api-poc-bg -n devsecops-bg
+```
+
+**Current Blue-Green Status (from cluster):**
+- Namespace: `devsecops-bg`
+- Replicas: 2
+- Active service: Routes to current version
+- Preview service: Routes to new version during deployment
+- Scaledown delay: 30 seconds (rollback window)
+- Auto-promotion: Enabled (after pre-promotion analysis passes)
+
+#### **Comparison Table**
+
+| Feature | Standard | Canary | Blue-Green |
+|---------|----------|--------|-----------|
+| **Rollout Speed** | Fast (sequential) | Gradual (gated) | Instant (switchover) |
+| **Traffic Control** | All-or-nothing | Progressive (10→50→100%) | All old or all new |
+| **Analysis Gates** | None | ✅ Per-step analysis | ✅ Pre-promotion only |
+| **Rollback Speed** | Delete old pods (slow) | Stop new traffic (fast) | Instant (30s window) |
+| **Testing** | Post-deployment | During deployment | Before cutover |
+| **Resource Cost** | Minimal | Moderate | Highest (2 full replicas) |
+| **Best For** | Dev/staging | Prod with risk gates | Prod zero-downtime |
+
+#### **Fleet Integration (Multi-Cluster Deployment)**
+
+All three strategies are deployed via Rancher Fleet across clusters:
+
+```
+k8s/overlays/poc/kustomization.yaml
+    └─ Images: node-api-poc:latest (standard)
+
+k8s/overlays/canary/kustomization.yaml
+    └─ Uses base/canary/rollout.yaml
+    └─ Images: node-api-poc-canary:latest
+
+k8s/overlays/blue-green/kustomization.yaml
+    └─ Uses base/blue-green/rollout.yaml
+    └─ Images: node-api-poc-bg:latest
+```
+
+**Deployment Triggers:**
+1. Developer commits to main
+2. CI pipeline builds, signs, and pushes image
+3. Git tags image in kustomization.yaml
+4. Fleet detects change (15s polling)
+5. Fleet applies manifests to all 6 clusters
+6. Argo Rollouts executes the chosen strategy
+
+#### **Monitoring Deployments**
+
+```bash
+# Watch all deployments/rollouts across namespaces
+kubectl get deploy,rollout -A
+
+# Monitor canary traffic shift
+kubectl get rollout node-api-poc-canary -n devsecops-canary -w
+
+# Check blue-green service routing
+kubectl get svc -n devsecops-bg
+kubectl get endpoints node-api-poc-bg-active -n devsecops-bg
+
+# View deployment history
+kubectl rollout history rollout/node-api-poc-canary -n devsecops-canary
+
+# Check Argo Rollouts controller logs
+kubectl logs -n argo-rollouts deployment/argo-rollouts
+```
+
+---
+
 ### 4. **Storage & Persistence (Longhorn + PostgreSQL)**
 
 **Longhorn Deployment Architecture:**
