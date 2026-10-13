@@ -1,0 +1,40 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-node-api-image-repository
+  annotations:
+    policies.kyverno.io/title: Restrict Node API Image Repository
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Restricts image references in the dedicated Node API application namespaces
+      to the approved node-api-poc repository. Docker Hub hosting alone is not
+      considered a trust signal.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: validate-approved-repository
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - devsecops
+                - devsecops-canary
+                - devsecops-bg
+      validate:
+        message: >-
+          Only images from docker.io/aimocont2020/node-api-poc are allowed in
+          the dedicated Node API namespaces. Add other repositories explicitly
+          only after reviewing and approving them.
+        pattern:
+          spec:
+            containers:
+              - image: "docker.io/aimocont2020/node-api-poc:* | aimocont2020/node-api-poc:*"
+            "=(initContainers)":
+              - image: "docker.io/aimocont2020/node-api-poc:* | aimocont2020/node-api-poc:*"
+            "=(ephemeralContainers)":
+              - image: "docker.io/aimocont2020/node-api-poc:* | aimocont2020/node-api-poc:*"
