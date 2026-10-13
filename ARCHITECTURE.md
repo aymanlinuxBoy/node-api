@@ -1766,36 +1766,163 @@ kubectl -n argocd get application node-api-poc-policies
 
 #### **9.2 Falco (Runtime Security)**
 
-**Detection Rules:**
+**Purpose & Architecture:**
+
+Falco is a runtime security engine that detects anomalous behavior inside containers by monitoring kernel system calls. It complements AppArmor (preventive) by detecting (detective) what processes are doing in real-time.
+
+**Detection Capabilities:**
+
 1. **Suspicious Processes**
-   - Unexpected binaries run in container
-   - Shell spawn in application pod
-   - Package manager execution
+   - Unexpected binaries run in container (e.g., `bash` in nginx container)
+   - Shell spawn in application pod (`/bin/sh`, `/bin/bash`)
+   - Package manager execution in running container (`apt`, `apk`, `rpm`)
+   - Process execution in privileged containers
 
 2. **File Access**
-   - Writes to system directories
-   - Reads from /etc/shadow
+   - Writes to system directories (`/etc`, `/sys`, `/proc`)
+   - Reads from sensitive files (`/etc/shadow`, `/etc/passwd`, `/root/.ssh`)
    - Deletes application files
+   - Modifications to application binaries
 
 3. **Network Activity**
-   - Outbound connections to unknown hosts
-   - Port scanning activity
-   - DNS queries to unexpected domains
+   - Outbound connections to unknown hosts (exfiltration attempts)
+   - Port scanning activity (reconnaissance)
+   - DNS queries to suspicious domains
+   - Reverse shell connections
 
 4. **Privilege Escalation**
    - setuid/setgid calls
-   - Capability additions
+   - Capability additions at runtime
    - Namespace escape attempts
 
-**Alert Severity Levels:**
-- **Critical:** Immediate action needed (shell spawn, privilege escalation)
-- **Warning:** Investigate (unusual file access, network activity)
-- **Info:** Logging only (allowed operations)
+**Installation & Configuration:**
 
-**Integration:**
-- Falco alerts → Prometheus + AlertManager
-- Falco logs → Loki (queryable dashboards)
-- Alert triggers pod suspension or eviction
+```bash
+# Add Falco Helm repository
+helm repo add falcosecurity https://falcosecurity.github.io/charts
+helm repo update
+
+# Install Falco as DaemonSet (runs on every node)
+helm upgrade --install falco falcosecurity/falco \
+  --namespace falco \
+  --create-namespace \
+  -f falco-values.yaml
+
+# Verify installation
+kubectl get pods -n falco -o wide
+kubectl get daemonset -n falco
+```
+
+**Custom Rule Configuration (from falco-values.yaml):**
+
+```yaml
+customRules:
+  # Example: Detect cat execution in specific pod
+  Cat Executed Inside AppArmor Test Deployment: |
+    - rule: Cat Executed Inside AppArmor Test Deployment
+      desc: Detect cat execution in labelled test pod
+      condition: >
+        spawned_process and 
+        proc.name = "cat" and 
+        container and 
+        k8s.namespace.name = "default" and 
+        k8s.pod.label[app] = "apparmor-test"
+      output: >
+        Cat command executed
+        (user=%user.name, container=%container.name, pod=%k8s.pod.name)
+      priority: WARNING
+```
+
+**Rule Components:**
+- **condition:** CEL expression matching syscalls and metadata
+- **output:** What to log when rule fires
+- **priority:** Alert severity (CRITICAL, WARNING, NOTICE, INFO, DEBUG)
+- **k8s.pod.label[key]:** Access pod labels (bracket syntax required)
+
+**Alert Severity Levels:**
+- **CRITICAL:** Immediate action needed (privilege escalation, reverse shell)
+- **WARNING:** Investigate (shell spawn, unusual file access)
+- **NOTICE:** Notable but expected (network connections)
+- **INFO:** Logging only (allowed operations)
+
+**Testing Detection:**
+
+```bash
+# 1. Find Falco pod on same node as test workload
+kubectl get pods -n default -l app=apparmor-test -o wide
+kubectl get pods -n falco -o wide
+
+# 2. Watch Falco logs
+kubectl logs -n falco <falco-pod> -c falco -f --since=1m \
+  | grep 'Cat Executed Inside AppArmor Test Deployment'
+
+# 3. Trigger detection in separate terminal
+kubectl exec -n default deployment/apparmor-test -- cat /etc/hostname
+
+# 4. Verify event appears in Falco logs (includes cmd, pod, namespace, container)
+```
+
+**Integration with Observability Stack:**
+
+- **Falco → Prometheus:** Falco metrics (detections/sec, rules fired)
+- **Falco → Loki:** Falco events as structured logs (queryable, filterable)
+- **Falco → AlertManager:** Critical alerts trigger Slack/PagerDuty notifications
+
+**Falcosidekick (Notification Forwarding):**
+
+Falcosidekick bridges Falco to external systems:
+
+```bash
+# Store webhook URL in secret (never commit URLs)
+kubectl create secret generic falco-teams-webhook \
+  -n falco \
+  --from-literal=url='https://...'
+
+# Configure in Helm values
+helm upgrade falco falcosecurity/falco \
+  --set falco.grpcOutput.enabled=true \
+  --set falcosidekick.enabled=true \
+  --set falcosidekick.webui.enabled=true \
+  --set falcosidekick.config.webhook.address='$WEBHOOK_ADDRESS'
+```
+
+**Monitoring Falco:**
+
+```bash
+# Check DaemonSet status
+kubectl get daemonset -n falco
+kubectl describe daemonset falco -n falco
+
+# View Falco controller logs
+kubectl logs -n falco deployment/falco -f
+
+# Monitor alerts (tail last 5m)
+kubectl logs -n falco -l app.kubernetes.io/name=falco --since=5m \
+  | grep -i 'WARNING\|CRITICAL'
+
+# Query Loki for Falco events
+kubectl exec -it loki-0 -n observability -- \
+  curl -s 'http://localhost:3100/loki/api/v1/query?query={job="falco"}'
+```
+
+**Current Implementation (from PoC):**
+
+- **Deployment:** DaemonSet (one pod per node)
+- **Custom rules:** Enabled via ConfigMap
+- **Artifact installation:** Disabled (bypass external DNS issue)
+- **Falcosidekick:** Optional webhook forwarding to Teams/Power Automate
+- **Mode:** Detection only (non-blocking alerts)
+
+**AppArmor + Falco Layered Defense:**
+
+```text
+Attack Attempt (e.g., shell spawn in nginx)
+    │
+    ├─ AppArmor: "Process not allowed" → BLOCKS syscall
+    └─ Falco: "Shell spawned in container" → ALERTS/LOGS
+    
+Result: Attack prevented + incident logged
+```
 
 ---
 
