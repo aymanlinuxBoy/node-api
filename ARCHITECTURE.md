@@ -1321,18 +1321,43 @@ kubectl exec -it prometheus-0 -n prometheus -- \
 
 #### **9.1 Kyverno (Policy Enforcement)**
 
+**Implementation & Architecture:**
+
+Kyverno is deployed as cluster-scoped policies that validate image references and signatures for Pods in target namespaces. Two primary policies are managed via GitOps:
+
+**Repository Structure:**
+```
+k8s/
+├── policies/
+│   ├── kustomization.yaml
+│   ├── image-validating-policy.yaml    (signature verification)
+│   └── restrict-image-repository.yaml  (repository whitelist)
+└── argocd/
+    └── application-policies.yaml       (GitOps integration)
+```
+
 **Policies Deployed:**
-1. **Image Signature Verification**
-   - Blocks unsigned images
-   - Validates Cosign signatures
-   - Allows only verified registries
 
-2. **Image Scanning**
-   - Requires scan results
-   - Fails on high-severity CVEs
-   - Tracks vulnerability score
+1. **Image Repository Restriction** (`node-api-poc-restrict-image-repository`)
+   - **Scope:** Validates `Pod CREATE` and `UPDATE` operations
+   - **Target Namespaces:** `devsecops`, `devsecops-bg`, `devsecops-canary`
+   - **Approved Repositories (per namespace):**
+     - `devsecops` / `devsecops-bg`: `aimocont2020/node-api-poc`, `aimocont2020/devsecops-demo`
+     - `devsecops-canary`: `aimocont2020/node-api-poc` (canary-specific restriction)
+   - **Containers Checked:** regular containers, init containers, ephemeral containers
+   - **Mode:** Audit (non-blocking, violations recorded in PolicyReport)
 
-3. **Resource Limits**
+2. **Image Signature Verification** (`node-api-poc-verify-signature`)
+   - **Policy Type:** `ImageValidatingPolicy` (CEL-based)
+   - **Image Match:** `aimocont2020/node-api-poc` (with or without `docker.io/` prefix)
+   - **Verification Method:** Cosign keyless signing
+   - **OIDC Issuer:** `https://token.actions.githubusercontent.com`
+   - **Trusted Workflow:** `https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main`
+   - **Rekor Log:** `https://rekor.sigstore.dev` (transparency log)
+   - **Enforcement:** `required: true`, `verifyDigest: true`, `mutateDigest: true`
+   - **Mode:** Audit with `failurePolicy: Ignore` (non-blocking until switched to Deny)
+
+3. **Resource Limits** (via Kyverno)
    - CPU/memory limits required
    - Prevents resource exhaustion attacks
    - Enforces namespace quotas
@@ -1353,11 +1378,81 @@ kubectl exec -it prometheus-0 -n prometheus -- \
    - Role bindings validated
    - Prevents privilege escalation
 
+**Validation Before Deployment:**
+
+```bash
+# 1. Render and validate Kustomize output
+kubectl kustomize k8s/policies
+
+# 2. Server-side dry-run (validates against API)
+kubectl apply --dry-run=server -k k8s/policies
+
+# 3. Check policy resources exist
+kubectl get validatingpolicy node-api-poc-restrict-image-repository
+kubectl get imagevalidatingpolicy node-api-poc-verify-signature
+
+# 4. Review policy details
+kubectl describe imagevalidatingpolicy node-api-poc-verify-signature
+```
+
+**GitOps Integration (Argo CD):**
+- **Application:** `node-api-poc-policies` (in `argocd` namespace)
+- **Repository:** `https://github.com/aymanlinuxBoy/node-api.git`
+- **Branch:** `main`
+- **Path:** `k8s/policies`
+- **Sync:** Automated, with pruning and self-healing enabled
+- **Destination:** `downstream` cluster, `kyverno` namespace
+
+**Audit vs. Deny Modes:**
+
+| Mode | Violation Handling | Error Handling | Current Status |
+|------|-------------------|----------------|-----------------|
+| `Audit` + `failurePolicy: Ignore` | Records in PolicyReport, admits Pod | Ignores errors, admits Pod | **Current (non-blocking)** |
+| `Deny` + `failurePolicy: Ignore` | Rejects Pod | Ignores errors, rejects Pod | Future (after validation) |
+| `Deny` + `failurePolicy: Fail` | Rejects Pod | Rejects on error (fail-closed) | Production-grade |
+
+**Important:** Do NOT enable Deny mode until:
+- All false positives are fixed
+- Cosign/Sigstore connectivity is validated from all nodes
+- Network timeouts won't block legitimate Pod creation
+- PolicyReport violations are reviewed and classified
+
+**Testing Policy Behavior:**
+
+```bash
+# Test 1: Unsigned image (should fail policy)
+kubectl run test-unsigned --image=alpine:latest -n devsecops --dry-run=server -o yaml
+
+# Test 2: Whitelisted image (should pass)
+kubectl run test-node-api --image=aimocont2020/node-api-poc:latest -n devsecops-canary --dry-run=server -o yaml
+
+# Test 3: Restricted repo in canary (should fail policy)
+kubectl run test-devsecops-demo --image=aimocont2020/devsecops-demo:latest -n devsecops-canary --dry-run=server -o yaml
+```
+
+**Monitoring & Verification:**
+
+```bash
+# Check Kyverno controller status
+kubectl get pods -n kyverno
+
+# View PolicyReport violations
+kubectl get policyreport -A
+kubectl describe policyreport -n devsecops
+
+# Monitor Kyverno logs
+kubectl logs -n kyverno deployment/kyverno -f | grep -Ei 'error|violation|signature'
+
+# Check Argo CD Application status
+kubectl -n argocd get application node-api-poc-policies
+```
+
 **Impact on Deployment:**
-- All pods must pass policies before scheduling
-- Failed policy → pod stays in `CreateContainerError`
-- Audit logging captures all violations
-- False positives: Adjust policy or request exemption
+- All pods must pass policies before scheduling (currently Audit mode, non-blocking)
+- Failed policy → violation recorded in PolicyReport
+- Audit logging via PolicyReport captures all violations
+- When switched to Deny mode: failed policy → pod stays in `CreateContainerError`
+- False positives: Adjust allow-list or request policy exemption
 
 ---
 
@@ -1398,13 +1493,157 @@ kubectl exec -it prometheus-0 -n prometheus -- \
 
 #### **9.3 AppArmor Profiles**
 
-**AppArmor Deployment:**
-- Profiles loaded on all cluster nodes
-- Pod annotations reference profiles: `container.apparmor.security.beta.kubernetes.io/<container>: localhost/<profile>`
-- Mode: `complain` (audit-only) or `enforce` (blocking)
+**Implementation & Prerequisites:**
 
-**Example Profile (nginx):**
+AppArmor is a Linux kernel security module that restricts what processes inside containers may do. Each profile is loaded on cluster nodes at `/etc/apparmor.d/` and must be present before a Pod references it.
+
+**Node Prerequisites (on each cluster node):**
+
+```bash
+# 1. Verify AppArmor is enabled in kernel
+cat /sys/module/apparmor/parameters/enabled
+# Expected: Y
+
+# 2. Verify apparmor_parser utility is installed
+command -v apparmor_parser
+
+# 3. Check current profile status
+sudo aa-status
 ```
+
+**AppArmor Profile Deployment:**
+
+Profiles must be deployed to `/etc/apparmor.d/` on EVERY node that may run a Pod using that profile. Two deployment methods:
+
+**Method 1: Manual (Node-level, for PoC)**
+```bash
+# On each node, save and load the profile
+sudo tee /etc/apparmor.d/k8s-demo-app >/dev/null <<'EOF'
+#include <tunables/global>
+
+profile k8s-demo-app flags=(attach_disconnected) {
+  #include <abstractions/base>
+  
+  # Allow file operations
+  file,
+  
+  # Deny writes
+  deny /** w,
+}
+EOF
+
+# Load and verify
+sudo apparmor_parser -r /etc/apparmor.d/k8s-demo-app
+sudo grep 'k8s-demo-app' /sys/kernel/security/apparmor/profiles
+# Expected: k8s-demo-app (enforce)
+```
+
+**Method 2: Automated (DaemonSet-based, production)**
+
+Create a DaemonSet that loads profiles on all nodes:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: apparmor-loader
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: apparmor-loader
+  template:
+    metadata:
+      labels:
+        app: apparmor-loader
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - operator: Exists
+      containers:
+      - name: loader
+        image: ubuntu:latest
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: host-root
+          mountPath: /host
+        - name: profiles
+          mountPath: /profiles
+        command:
+        - bash
+        - -c
+        - |
+          mkdir -p /host/etc/apparmor.d/
+          cp /profiles/* /host/etc/apparmor.d/
+          chroot /host /usr/sbin/apparmor_parser -r /etc/apparmor.d/k8s-demo-app
+          grep 'k8s-demo-app' /host/sys/kernel/security/apparmor/profiles
+      volumes:
+      - name: host-root
+        hostPath:
+          path: /
+      - name: profiles
+        configMap:
+          name: apparmor-profiles
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apparmor-profiles
+  namespace: kube-system
+data:
+  k8s-demo-app: |
+    #include <tunables/global>
+    profile k8s-demo-app flags=(attach_disconnected) {
+      #include <abstractions/base>
+      file,
+      deny /** w,
+    }
+```
+
+**Pod Integration:**
+
+Reference the profile in Pod security context using the `appArmorProfile` field:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        image: busybox:latest
+        securityContext:
+          allowPrivilegeEscalation: false
+          appArmorProfile:
+            type: Localhost
+            localhostProfile: k8s-demo-app  # Must exist on node
+```
+
+**Verification:**
+
+```bash
+# 1. Confirm process is confined
+kubectl exec -it <pod> -- cat /proc/1/attr/current
+# Expected: k8s-demo-app (enforce)
+
+# 2. Test allowed operation (read)
+kubectl exec -it <pod> -- cat /etc/hostname
+# Should succeed
+
+# 3. Test denied operation (write)
+kubectl exec -it <pod> -- touch /tmp/test-file
+# Should fail: Permission denied (if profile denies writes)
+```
+
+**Example Profile (nginx in complain mode):**
+```
+#include <tunables/global>
+
 profile demo-app flags=(complain) {
   #include <abstractions/base>
   #include <abstractions/nameservice>
@@ -1420,6 +1659,46 @@ profile demo-app flags=(complain) {
   deny /sys/** w,
 }
 ```
+
+**Profile Modes:**
+- **`complain`:** Audit-only; violations logged but not blocked (learning mode)
+- **`enforce`:** Violations blocked; process cannot perform denied action
+- **`attach_disconnected`:** Allows profile to follow process across namespace transitions (required for containers)
+
+**AppArmor + Falco Integration:**
+
+AppArmor restricts **what** a process can do; Falco detects **what** a process is trying to do:
+
+```text
+Pod tries to execute process
+    │
+    ├─ AppArmor: "Deny write to /root" → blocks syscall
+    └─ Falco: "Shell spawned in confined container" → alerts
+```
+
+**Troubleshooting:**
+
+```bash
+# Check if profile loaded on node
+ssh <node> "sudo grep 'k8s-demo-app' /sys/kernel/security/apparmor/profiles"
+
+# View AppArmor denials in audit log
+ssh <node> "sudo dmesg | grep apparmor | tail -20"
+
+# Reload profile after changes
+ssh <node> "sudo apparmor_parser -r /etc/apparmor.d/k8s-demo-app"
+
+# Profile syntax validation (before loading)
+apparmor_parser -d /etc/apparmor.d/k8s-demo-app
+```
+
+**Current Implementation:**
+
+- **Mode:** Complain (audit-only, non-blocking)
+- **Profiles:** Located in `security-hardnes-poc/` folder
+- **Integration:** Referenced via Pod `appArmorProfile.localhostProfile`
+- **Deployment:** Manual per-node setup or automated via DaemonSet
+- **Monitoring:** Integration with Falco for detection; AppArmor denials logged to kernel audit
 
 ---
 
