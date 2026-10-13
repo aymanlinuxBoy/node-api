@@ -1,5 +1,5 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
 metadata:
   name: verify-signed-node-api-image
   annotations:
@@ -8,40 +8,54 @@ metadata:
     policies.kyverno.io/severity: high
     policies.kyverno.io/subject: Pod
     policies.kyverno.io/description: >-
-      Requires the node-api-poc image to be signed by the trusted keyless
-      GitHub Actions workflow using Cosign, with the expected OIDC issuer and
-      Sigstore transparency log.
+      Requires the Node API image to have a valid Cosign keyless signature
+      from the trusted GitHub Actions workflow identity.
 spec:
-  validationFailureAction: Audit
-  # Image-signature verification is admission-time work; background scanning
-  # is disabled for this policy.
-  background: false
+  validationActions:
+    - Audit
+  failurePolicy: Fail
   webhookConfiguration:
-    failurePolicy: Fail
     timeoutSeconds: 30
-  rules:
-    - name: verify-node-api-poc-signature
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - devsecops
-                - devsecops-canary
-                - devsecops-bg
-      verifyImages:
-        - imageReferences:
-            - "docker.io/aimocont2020/node-api-poc:*"
-            - "aimocont2020/node-api-poc:*"
-          failureAction: Audit
-          required: true
-          mutateDigest: true
-          verifyDigest: true
-          attestors:
-            - entries:
-                - keyless:
-                    subject: "https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main"
-                    issuer: "https://token.actions.githubusercontent.com"
-                    rekor:
-                      url: "https://rekor.sigstore.dev"
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+  matchConditions:
+    - name: node-api-namespaces-only
+      expression: "object.metadata.namespace in ['devsecops', 'devsecops-canary', 'devsecops-bg']"
+  matchImageReferences:
+    - glob: 'docker.io/aimocont2020/node-api-poc:*'
+    - glob: 'docker.io/aimocont2020/node-api-poc@*'
+    - glob: 'aimocont2020/node-api-poc:*'
+    - glob: 'aimocont2020/node-api-poc@*'
+  attestors:
+    - name: githubActionsMain
+      cosign:
+        keyless:
+          identities:
+            - subject: 'https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main'
+              issuer: 'https://token.actions.githubusercontent.com'
+        ctlog:
+          url: 'https://rekor.sigstore.dev'
+  validationConfigurations:
+    mutateDigest: true
+    verifyDigest: true
+    required: true
+  validations:
+    - expression: >-
+        images.containers.map(image,
+          verifyImageSignatures(image, [attestors.githubActionsMain])
+        ).all(result, result > 0)
+      message: >-
+        Every image evaluated by this policy must have a valid Cosign signature
+        from the trusted node-api CI workflow.
