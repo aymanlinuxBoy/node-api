@@ -1,22 +1,28 @@
 ---
-apiVersion: policies.kyverno.io/v1beta1
+apiVersion: policies.kyverno.io/v1
 kind: ImageValidatingPolicy
 metadata:
   name: node-api-poc-verify-signature
+  annotations:
+    policies.kyverno.io/title: Verify Signed Node API Image
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Verifies that Node API image references have a valid Cosign keyless
+      signature from the trusted GitHub Actions workflow identity.
 spec:
-  # Audit-first rollout: violations are recorded in Kyverno policy reports
-  # but pods are NOT blocked yet. Once reports show no unexpected
-  # rejections, flip this to `Deny` to actually enforce.
+  # Audit-first: record signature violations without rejecting Pod admission.
   validationActions:
     - Audit
-
-  # A broken/unreachable webhook fails OPEN (pods still get admitted)
-  # instead of failing closed and blocking all pod creation cluster-wide.
+  # Keep the first rollout non-blocking if Kyverno or signature verification has an evaluation error.
+  # Before production enforcement, use validationActions: [Deny] and failurePolicy: Fail.
   failurePolicy: Ignore
-
   webhookConfiguration:
     timeoutSeconds: 20
-
+  evaluation:
+    background:
+      enabled: false
   matchConstraints:
     resourceRules:
       - apiGroups: [""]
@@ -31,28 +37,32 @@ spec:
             - devsecops
             - devsecops-bg
             - devsecops-canary
-
+  # Exact repository names only; include tag and digest references.
   matchImageReferences:
-    - glob: "aimocont2020/node-api-poc*"
-
+    - glob: "docker.io/aimocont2020/node-api-poc"
+    - glob: "docker.io/aimocont2020/node-api-poc:*"
+    - glob: "docker.io/aimocont2020/node-api-poc@*"
+    - glob: "aimocont2020/node-api-poc"
+    - glob: "aimocont2020/node-api-poc:*"
+    - glob: "aimocont2020/node-api-poc@*"
   validationConfigurations:
-    required: false
-    verifyDigest: false
-    mutateDigest: false
-
+    required: true
+    verifyDigest: true
+    mutateDigest: true
   attestors:
     - name: ci_identity
       cosign:
         keyless:
-          # Same Fulcio-issued identity the CI pipeline itself checks in
-          # the "Verify signature" step of ci-security.yml.
           identities:
-            - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main
-
+            - issuer: "https://token.actions.githubusercontent.com"
+              subject: "https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main"
+        ctlog:
+          url: "https://rekor.sigstore.dev"
   validations:
     - expression: >-
-        images.containers.map(image, verifyImageSignatures(image, [attestors.ci_identity])).all(e, e > 0)
+        images.containers.map(image,
+          verifyImageSignatures(image, [attestors.ci_identity])
+        ).all(result, result > 0)
       message: >-
-        node-api-poc image is not signed by this repo's CI pipeline
-        (cosign keyless verification against the ci-security.yml workflow identity failed)
+        The Node API image is not signed by the trusted node-api CI workflow
+        (Cosign keyless verification failed).
