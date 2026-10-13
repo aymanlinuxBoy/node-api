@@ -1,0 +1,42 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-signed-node-api-image
+  annotations:
+    policies.kyverno.io/title: Verify Signed Node API Image
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Requires the node-api-poc image to be signed by the trusted keyless
+      GitHub Actions workflow using Cosign, with the expected OIDC issuer and
+      Sigstore transparency log.
+spec:
+  validationFailureAction: Audit
+  background: true
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-node-api-poc-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - devsecops
+                - devsecops-canary
+                - devsecops-bg
+      verifyImages:
+        - imageReferences:
+            - "docker.io/aimocont2020/node-api-poc:*"
+            - "aimocont2020/node-api-poc:*"
+          required: true
+          mutateDigest: true
+          verifyDigest: true
+          attestors:
+            - entries:
+                - keyless:
+                    subject: "https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: "https://rekor.sigstore.dev"
