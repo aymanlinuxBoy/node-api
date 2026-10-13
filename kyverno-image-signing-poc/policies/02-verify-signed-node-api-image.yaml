@@ -13,7 +13,9 @@ metadata:
 spec:
   validationActions:
     - Audit
-  failurePolicy: Fail
+  # Audit-first: report validation failures without blocking admissions.
+  # Set to Fail with validationActions Deny when moving to enforcement.
+  failurePolicy: Ignore
   webhookConfiguration:
     timeoutSeconds: 30
   evaluation:
