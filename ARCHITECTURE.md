@@ -485,85 +485,445 @@ Scenario: PostgreSQL corrupted after bad migration (Day 3)
 
 ### 5. **Secrets Management (HashiCorp Vault)**
 
+**Vault Architecture & Trust Chain:**
+
+```
+UPSTREAM CLUSTER (k3s)
+┌─────────────────────────────────────────────────┐
+│ HashiCorp Vault (Source of Truth)               │
+│                                                 │
+│ KV v2 Secrets:                                  │
+│ ├─ secret/devsecops-bg/postgres                │
+│ │  ├─ DB_USER                                  │
+│ │  └─ DB_PASSWORD                              │
+│ │                                              │
+│ └─ secret/other-app/...                        │
+│                                                 │
+│ Policy (eso-postgres):                         │
+│ └─ Read access: secret/data/devsecops-bg/*     │
+│                                                 │
+│ AppRole Auth:                                   │
+│ └─ eso-postgres (role_id + secret_id)          │
+│    └─ Bound to eso-postgres policy             │
+└────────────────┬────────────────────────────────┘
+                 │ Vault API (reachable URL)
+                 │ http://<NODE_IP>:<NODEPORT>
+                 ▼
+DOWNSTREAM CLUSTER (RKE2)
+┌─────────────────────────────────────────────────┐
+│ Namespace: devsecops-bg                         │
+│                                                 │
+│ K8s Secret: vault-approle                       │
+│ └─ secret_id (sensitive credential)             │
+│                                                 │
+│ SecretStore: vault-store                        │
+│ ├─ Vault server URL + path                     │
+│ ├─ AppRole auth method                         │
+│ ├─ role_id (non-sensitive identifier)          │
+│ └─ secret_id reference (from K8s Secret)       │
+│                                                 │
+│ ExternalSecret: postgres-credentials            │
+│ ├─ Syncs from Vault KV secret                  │
+│ ├─ Refresh interval: 1 minute                  │
+│ └─ Creates/updates K8s Secret                  │
+│                                                 │
+│ K8s Secret: node-api-poc-bg-db-credentials     │
+│ ├─ Owned by ExternalSecret                     │
+│ ├─ DB_USER / DB_PASSWORD (auto-updated)        │
+│ └─ Referenced by Argo Rollout                  │
+│                                                 │
+│ Argo Rollout: node-api-poc-bg                  │
+│ └─ Mounts secret as env vars / volume          │
+└─────────────────────────────────────────────────┘
+```
+
+**Three Core Concepts:**
+1. **Policy:** WHAT may be accessed (read secret/data/devsecops-bg/postgres)
+2. **AppRole:** WHICH machine identity can authenticate (eso-postgres)
+3. **Credentials:** HOW to authenticate (role_id + secret_id → temporary token)
+
 **Vault Installation:**
-- **Deployment:** High-availability StatefulSet (3 replicas)
-- **Storage Backend:** Longhorn persistent volume
-- **Authentication:** Kubernetes service account auth method
+- **Deployment:** High-availability StatefulSet (3 replicas on upstream cluster)
+- **Storage Backend:** Longhorn persistent volume (50Gi)
+- **Authentication Methods:**
+  - AppRole (for cross-cluster ESO authentication)
+  - Kubernetes auth (for future pod integration)
+  - Root token (for admin setup only)
 - **Initialization:** Unsealing via auto-unseal (production) or Shamir keys (dev)
 
 **Secret Types Managed:**
-- Database credentials (PostgreSQL user/password)
-- TLS certificates (for ingress/internal communication)
-- API keys and OAuth tokens
-- Container registry credentials
+- **Database credentials** (PostgreSQL user/password via KV v2)
+- **TLS certificates** (for ingress/internal communication)
+- **API keys and OAuth tokens**
+- **Container registry credentials**
+- **Future:** Dynamic PostgreSQL credentials (Database Secrets Engine)
 
-**Integration Points:**
+**Vault Configuration Steps:**
+
+```bash
+# 1. Enable KV v2 secrets engine
+vault secrets enable -path=secret kv-v2
+
+# 2. Create secret (with both user and password)
+vault kv put secret/devsecops-bg/postgres \
+  DB_USER=postgres \
+  DB_PASSWORD='<DB_PASSWORD>'
+
+# 3. Create least-privilege policy
+vault policy write eso-postgres - <<'EOF'
+path "secret/data/devsecops-bg/postgres" {
+  capabilities = ["read"]
+}
+EOF
+
+# 4. Enable AppRole auth method
+vault auth enable approle
+
+# 5. Create AppRole and attach policy
+vault write auth/approle/role/eso-postgres \
+  token_policies="eso-postgres" \
+  token_ttl="1h" \
+  token_max_ttl="4h"
+
+# 6. Retrieve role_id (non-sensitive identifier)
+vault read -field=role_id auth/approle/role/eso-postgres/role-id
+
+# 7. Generate secret_id (sensitive credential - handle carefully)
+vault write -f auth/approle/role/eso-postgres/secret-id
+
+# 8. Test AppRole login
+vault write auth/approle/login \
+  role_id="<ROLE_ID>" \
+  secret_id="<SECRET_ID>"
 ```
-Application Pod
-    │
-    ├─ Vault Agent (sidecar injection)
-    │   │
-    │   ├─ Authenticates with Kubernetes auth
-    │   ├─ Retrieves secrets from Vault
-    │   └─ Writes to file/env (mounted volume)
-    │
-    └─ Application reads from /vault/secrets/
-         └─ Database credentials
-         └─ TLS certificates
-         └─ API keys
-```
+
+**Key Vault Configuration Details:**
+- **KV v2 Path Rule:** CLI path: `secret/devsecops-bg/postgres` → Policy path: `secret/data/devsecops-bg/postgres` (note `/data/` segment)
+- **AppRole TTL:** token_ttl=1h (auto-refresh), token_max_ttl=4h (max renewal)
+- **Cross-Cluster Access:** Vault exposed on reachable URL (NodePort or Ingress) for downstream ESO connectivity
 
 **Verification:**
 ```bash
-# Check Vault status
+# Check Vault status (upstream)
 kubectl exec -it vault-0 -n vault -- vault status
 
-# List secrets
-kubectl exec -it vault-0 -n vault -- vault kv list secret/
+# Verify KV v2 engine
+kubectl exec -it vault-0 -n vault -- vault secrets list -detailed
 
-# Test secret retrieval
-kubectl exec -it <pod> -- cat /vault/secrets/database-creds
+# Verify secret exists
+kubectl exec -it vault-0 -n vault -- vault kv get secret/devsecops-bg/postgres
+
+# Verify policy
+kubectl exec -it vault-0 -n vault -- vault policy read eso-postgres
+
+# Verify AppRole configuration
+kubectl exec -it vault-0 -n vault -- vault read auth/approle/role/eso-postgres
+
+# Test Vault reachability from downstream
+curl -sS http://<UPSTREAM_NODE_IP>:<VAULT_NODEPORT>/v1/sys/health
 ```
 
 ---
 
-### 6. **Secret Rotation (Reloader)**
+### 6. **Secret Rotation (External Secrets Operator + Reloader)**
 
-**Reloader Configuration:**
-- **Purpose:** Automatically restart pods when secrets/configmaps change
-- **Mechanism:** Watches Vault-injected secrets and triggers pod rollout
+**Complete Secret Rotation Architecture:**
 
-**Workflow:**
 ```
-Vault Secret Updated
+SETUP: Upstream → Downstream
+Vault Secret
     │
-    └─ Vault Agent sidecar detects change
+    ├─ Upstream: Configure AppRole + Policy
+    │
+    └─ Downstream: ESO → K8s Secret → Reloader → Pod Restart
+    
+ROTATION FLOW:
+Vault KV Secret Updated (manual or automatic)
+    │
+    └─ ESO SecretStore detects change (via API query)
         │
-        └─ Updates mounted secret file
+        └─ ESO refreshes every 1 minute
             │
-            └─ Reloader detects configmap annotation change
+            └─ Updates K8s Secret: node-api-poc-bg-db-credentials
                 │
-                └─ Triggers pod restart (rolling update)
+                └─ ResourceVersion increments
                     │
-                    └─ New pod gets fresh secret
+                    └─ Reloader detects Secret change
+                        │
+                        └─ Triggers Argo Rollout restart
+                            │
+                            └─ Pods replaced (rolling update)
+                                │
+                                └─ New pods mount fresh secret
 ```
 
-**Configuration:**
-- ConfigMap annotation: `reloader.stakater.com/match: "true"`
-- Vault injector annotation: `vault.hashicorp.com/agent: "true"`
-- Rotation interval: Configurable per secret (default: 60 seconds)
+**Component Details:**
+
+**1. External Secrets Operator (ESO) - Downstream cluster**
+
+Install ESO on downstream RKE2 cluster:
+```bash
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo update
+
+helm upgrade --install external-secrets \
+  external-secrets/external-secrets \
+  -n external-secrets \
+  --create-namespace
+```
+
+**2. Store AppRole secret_id in Kubernetes Secret**
+
+```bash
+# On downstream cluster
+kubectl create secret generic vault-approle \
+  -n devsecops-bg \
+  --from-literal=secret-id='<SECRET_ID>'
+```
+
+**3. SecretStore Configuration**
+
+```yaml
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: vault-store
+  namespace: devsecops-bg
+spec:
+  provider:
+    vault:
+      server: "http://<UPSTREAM_NODE_IP>:<VAULT_NODEPORT>"
+      path: "secret"
+      version: "v2"
+      auth:
+        appRole:
+          path: "approle"
+          roleId: "<ROLE_ID>"
+          secretRef:
+            name: vault-approle
+            key: secret-id
+```
+
+**Key Configuration:**
+- **server:** Reachable Vault API endpoint (HTTP or HTTPS)
+- **path:** KV v2 engine path (default: "secret")
+- **version:** "v2" (for KV v2 semantics)
+- **roleId:** Non-sensitive identifier from Vault AppRole
+- **secretRef:** References K8s Secret containing sensitive secret_id
+
+**Verification:**
+```bash
+# Check SecretStore status
+kubectl get secretstore vault-store -n devsecops-bg
+kubectl describe secretstore vault-store -n devsecops-bg
+# Expected: Ready=True condition
+```
+
+**4. ExternalSecret Configuration**
+
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-credentials
+  namespace: devsecops-bg
+spec:
+  refreshInterval: 1m
+  secretStoreRef:
+    name: vault-store
+    kind: SecretStore
+  target:
+    name: node-api-poc-bg-db-credentials
+    creationPolicy: Owner
+  data:
+  - secretKey: DB_USER
+    remoteRef:
+      key: devsecops-bg/postgres
+      property: DB_USER
+  - secretKey: DB_PASSWORD
+    remoteRef:
+      key: devsecops-bg/postgres
+      property: DB_PASSWORD
+```
+
+**Key Configuration:**
+- **refreshInterval:** 1m (ESO checks Vault every minute for changes)
+- **secretStoreRef:** References SecretStore for Vault connection
+- **target.name:** Generated K8s Secret name
+- **creationPolicy: Owner:** ESO owns and manages the Secret lifecycle
+- **data:** Maps Vault secret properties to K8s Secret keys
+
+**Verification:**
+```bash
+# Check ExternalSecret status
+kubectl get externalsecret postgres-credentials -n devsecops-bg
+kubectl describe externalsecret postgres-credentials -n devsecops-bg
+# Expected: SecretSynced condition = True
+
+# Verify generated Secret was created
+kubectl get secret node-api-poc-bg-db-credentials -n devsecops-bg
+
+# Check Secret owner (should be postgres-credentials)
+kubectl get secret node-api-poc-bg-db-credentials -n devsecops-bg \
+  -o jsonpath='{.metadata.ownerReferences[*].name}'
+
+# Monitor resourceVersion changes (increments on ESO sync)
+kubectl get secret node-api-poc-bg-db-credentials -n devsecops-bg \
+  -o jsonpath='resourceVersion={.metadata.resourceVersion}'
+```
+
+**5. Reloader Configuration**
+
+Install Reloader with Argo Rollouts support:
+```bash
+helm repo add stakater https://stakater.github.io/stakater-charts
+helm repo update
+
+helm upgrade --install reloader stakater/reloader \
+  -n reloader \
+  --create-namespace \
+  --set reloader.isArgoRollouts=true \
+  --set reloader.autoReloadAll=false
+```
+
+**Configuration Notes:**
+- **reloader.isArgoRollouts=true:** Enables Argo Rollouts restart support
+- **reloader.autoReloadAll=false:** Only restarts workloads with explicit annotations (opt-in)
+
+**6. Annotate Argo Rollout for Reloader**
+
+```yaml
+metadata:
+  annotations:
+    reloader.stakater.com/auto: "true"
+    reloader.stakater.com/rollout-strategy: "restart"
+  
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        env:
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: node-api-poc-bg-db-credentials
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: node-api-poc-bg-db-credentials
+              key: DB_PASSWORD
+```
+
+**Annotation Details:**
+- **reloader.stakater.com/auto: "true":** Reloader watches referenced Secrets/ConfigMaps
+- **reloader.stakater.com/rollout-strategy: "restart":** Restart pods without modifying rollout template (GitOps-friendly)
 
 **Verification:**
 ```bash
 # Check Reloader deployment
-kubectl get deployment -n kube-system reloader
+kubectl get pods -n reloader
+kubectl get deployment reloader-reloader -n reloader \
+  -o jsonpath='{.spec.template.spec.containers[0].args}'
+# Expected: Contains --is-Argo-Rollouts=true
 
-# Monitor secret rotation
-kubectl logs -n kube-system -l app.kubernetes.io/name=reloader -f
-
-# Verify pod restart on secret change
-kubectl rollout history deployment/<app>
+# Check rollout annotations
+kubectl get rollout node-api-poc-bg -n devsecops-bg \
+  -o jsonpath='{.metadata.annotations}'
+# Expected: reloader.stakater.com/auto=true
 ```
+
+**Complete Secret Rotation Test:**
+
+```bash
+# 1. Record current state
+kubectl get secret node-api-poc-bg-db-credentials -n devsecops-bg \
+  -o jsonpath='resourceVersion={.metadata.resourceVersion}'
+kubectl get pods -n devsecops-bg -l app=node-api-poc-bg -o wide
+
+# 2. Update Vault secret (upstream cluster)
+vault kv put secret/devsecops-bg/postgres \
+  DB_USER=postgres \
+  DB_PASSWORD='<NEW_PASSWORD>'
+
+# 3. Force ESO sync (optional, otherwise wait 1 minute)
+kubectl annotate externalsecret postgres-credentials \
+  -n devsecops-bg \
+  force-sync=$(date +%s) \
+  --overwrite
+
+# 4. Monitor ESO sync
+kubectl get externalsecret postgres-credentials -n devsecops-bg
+kubectl describe externalsecret postgres-credentials -n devsecops-bg
+
+# 5. Verify K8s Secret updated (resourceVersion changed)
+kubectl get secret node-api-poc-bg-db-credentials -n devsecops-bg \
+  -o jsonpath='resourceVersion={.metadata.resourceVersion}'
+
+# 6. Watch Reloader logs
+kubectl logs -n reloader deployment/reloader-reloader -f
+
+# 7. Observe pod replacement (Argo Rollout)
+kubectl get pods -n devsecops-bg -w
+```
+
+**Troubleshooting (Bottom → Top):**
+
+```
+Pod did not restart
+    ↑
+Did Reloader see the Secret update?
+    ↑
+Did K8s Secret resourceVersion change?
+    ↑
+Did ExternalSecret postgres-credentials sync?
+    ↑
+Is SecretStore vault-store Ready?
+    ↑
+Can downstream reach Vault?
+    ↑
+Can AppRole authenticate (role_id + secret_id)?
+    ↑
+Does policy eso-postgres allow read access?
+    ↑
+Does secret/devsecops-bg/postgres exist in Vault?
+```
+
+**Troubleshooting Commands:**
+
+```bash
+# 1. Check Reloader
+kubectl logs -n reloader deployment/reloader-reloader --since=30m
+kubectl get deployment reloader-reloader -n reloader \
+  -o jsonpath='{.spec.template.spec.containers[0].args}'
+
+# 2. Check K8s Secret
+kubectl get secret node-api-poc-bg-db-credentials -n devsecops-bg \
+  -o jsonpath='{.metadata.ownerReferences[*].name}'
+
+# 3. Check ExternalSecret
+kubectl describe externalsecret postgres-credentials -n devsecops-bg
+kubectl get externalsecret postgres-credentials -n devsecops-bg -o yaml
+
+# 4. Check SecretStore
+kubectl describe secretstore vault-store -n devsecops-bg
+
+# 5. Check Vault connectivity
+curl -sS http://<UPSTREAM_NODE_IP>:<VAULT_NODEPORT>/v1/sys/health
+
+# 6. Check Vault policy and AppRole (from upstream cluster)
+vault policy read eso-postgres
+vault read auth/approle/role/eso-postgres
+vault kv get secret/devsecops-bg/postgres
+```
+
+**Known Limitations & Future Enhancements:**
+
+- **Current:** Static KV v2 secrets (manual password updates)
+- **Future:** Dynamic PostgreSQL credentials via Database Secrets Engine (auto-generated, short-lived)
+- **Current:** 1-minute refresh interval (balance between latency and Vault load)
+- **Future:** Webhook-based immediate sync (when Vault secret changes)
 
 ---
 
