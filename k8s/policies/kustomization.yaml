@@ -4,3 +4,4 @@ kind: Kustomization
 
 resources:
   - image-validating-policy.yaml
+  - restrict-image-repository.yaml
