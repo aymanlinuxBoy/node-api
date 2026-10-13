@@ -12,7 +12,7 @@ Two independent controls are included:
 
 The policy uses the GitHub Actions OIDC issuer `https://token.actions.githubusercontent.com` and the public Sigstore Rekor transparency log.
 
-> **Important:** Start in `Audit` mode, verify the deployed image has a valid signature, review the reports, and only then switch to `Enforce`. Do not enforce image verification before confirming that the tag/digest you deploy was signed by the expected workflow. This PoC has not been applied to a live cluster by these repository changes.
+> **Important:** Start in `Audit` mode, verify the deployed image has a valid signature, review policy status/results, and only then switch to `Enforce`. Do not enforce image verification before confirming that the tag/digest you deploy was signed by the expected workflow. The signature policy runs at admission time (background scanning is disabled). This PoC has not been applied to a live cluster by these repository changes.
 
 ## Scope and assumptions
 
@@ -158,7 +158,7 @@ kubectl describe clusterpolicy verify-signed-node-api-image
 kubectl get clusterpolicy verify-signed-node-api-image -o yaml
 ```
 
-Review the policy status, controller logs if verification fails, and available PolicyReports. Image verification needs network access from the Kyverno admission controller to the image registry and Sigstore services. Private images may require registry credentials; this example assumes the image is publicly readable.
+Review the policy status and the admission response; inspect Kyverno admission-controller logs if verification fails. This image-signature policy uses `background: false`, so do not expect a background PolicyReport scan from it. Verification needs network access from the Kyverno admission controller to the image registry and Sigstore services. Private images may require registry credentials; this example assumes the image is publicly readable.
 
 ## 6. Test the policy behavior
 
@@ -197,7 +197,7 @@ If the image is successfully verified, inspect the resulting Pod's image field a
 
 Only after the repository policy reports the expected behavior, the positive signature test succeeds, and the current application image is signed:
 
-1. Edit each policy's `spec.validationFailureAction` from `Audit` to `Enforce`.
+1. In the repository policy, change `spec.validationFailureAction: Audit` to `Enforce`. In the signature policy, change **both** `spec.validationFailureAction: Audit` and `spec.rules[0].verifyImages[0].failureAction: Audit` to `Enforce`.
 2. Apply the changed manifests.
 3. Repeat the negative test. The request to create a Pod using `busybox:1.36` should be rejected by admission.
 4. Repeat the positive test with a verified Node API image. It should be admitted.
@@ -207,11 +207,11 @@ Do not move directly to cluster-wide enforcement. Keep the scope limited until y
 
 ## 8. Troubleshooting
 
-- **Policy object exists but images are still admitted:** check `validationFailureAction`, `status.conditions`, PolicyReports, namespace matching, and Kyverno admission controller health. Audit mode intentionally does not reject requests.
+- **Policy object exists but images are still admitted:** check the correct failure-action field for that policy, `status.conditions`, the namespace match, the policy's `verifyImages.failureAction`, and Kyverno admission-controller health. Audit mode intentionally does not reject requests.
 - **A Deployment is accepted but its Pods fail:** inspect the Pod events; the auto-generated Pod-template policy may be rejecting the image when the ReplicaSet creates it.
 - **Signature verification fails:** confirm the exact digest was signed, the signature exists in Docker Hub, the subject matches the full workflow identity, the issuer is `https://token.actions.githubusercontent.com`, and the controller can reach Docker Hub and Rekor.
 - **An application Pod is unexpectedly rejected by the repository policy:** inspect every container, initContainer and ephemeralContainer. The policy intentionally permits only the Node API image in the selected namespaces.
-- **No PolicyReport CRDs exist:** check the installed Kyverno version and reporting features; policy admission results and controller logs can still help diagnose failures.
+- **No PolicyReport CRDs exist:** check the installed Kyverno version and reporting features. The signature policy runs at admission time with background scanning disabled, so use admission responses and controller logs to diagnose verification failures.
 
 ## Cleanup
 
