@@ -1,0 +1,37 @@
+# Lab values for the falcosecurity/falco Helm chart.
+# If cluster DNS to falcosecurity.github.io is healthy, prefer enabling artifact
+# install/follow again and retaining the default Falco rules artifacts.
+customRules:
+  apparmor-test-cat.yaml: |-
+    - rule: Cat Executed Inside AppArmor Test Deployment
+      desc: Detect when cat is executed inside the apparmor-test Deployment
+      condition: >
+        evt.type in (execve, execveat) and
+        container.id != host and
+        proc.name = cat and
+        k8s.ns.name = "default" and
+        k8s.pod.label[app] = "apparmor-test"
+      output: >
+        Cat executed inside the AppArmor test Deployment
+        (user=%user.name command=%proc.cmdline
+        pod=%k8s.pod.name namespace=%k8s.ns.name
+        container=%container.name
+        image=%container.image.repository)
+      priority: ERROR
+      tags: [apparmor, container, hands-on, process, security]
+
+falcosidekick:
+  enabled: true
+  config:
+    extraEnv:
+      # Secret must exist in namespace falco; never commit the webhook URL.
+      - name: WEBHOOK_ADDRESS
+        valueFrom:
+          secretKeyRef:
+            name: falco-teams-webhook
+            key: url
+      - name: WEBHOOK_MINIMUMPRIORITY
+        value: "error"
+
+# Falcosidekick UI is optional and needs Redis. Terminal logs are enough for
+# the detection exercise, so UI installation is not required.
