@@ -150,7 +150,7 @@ After this PR is merged to `main`, check the existing Application:
 ```bash
 kubectl -n argocd get application node-api-poc-policies
 argocd app get node-api-poc-policies
-kubectl get validatingpolicy node-api-poc-restrict-image-repository -o yaml
+kubectl get validatingpolicies.policies.kyverno.io node-api-poc-restrict-image-repository -o yaml
 ```
 
 The Application's source path is `k8s/policies`. Its Kustomization includes both the repository restriction policy and the signature policy. Both start in Audit mode, so a repository violation should not block admission. Review policy status, generated PolicyReports, and Kyverno controller logs.
@@ -158,7 +158,7 @@ The Application's source path is `k8s/policies`. Its Kustomization includes both
 ## 6. Check signature verification in Audit mode
 
 ```bash
-kubectl get imagevalidatingpolicy node-api-poc-verify-signature -o yaml
+kubectl get imagevalidatingpolicies.policies.kyverno.io node-api-poc-verify-signature -o yaml
 kubectl logs -n kyverno deployment/kyverno-admission-controller --since=10m
 ```
 
