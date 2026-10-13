@@ -1,170 +1,178 @@
-# Kyverno Image Policy and Cosign Verification PoC
+# Kyverno Image Allow-List and Cosign Verification PoC
 
-This PoC connects the existing GitHub Actions image-signing workflow to Kubernetes admission control. It is intentionally scoped to the Node API application namespaces rather than the whole cluster.
+This PoC connects the existing GitHub Actions image-signing workflow to Kyverno admission control. It targets only the Node API namespaces and uses the newer CEL-based policy APIs available in Kyverno **v1.19.1**.
 
-## What this protects
+## What this PoC protects
 
-Two independent controls are included:
+Two separate policies provide two different controls:
 
-1. **Repository allow-list** — workloads in `devsecops`, `devsecops-canary`, and `devsecops-bg` may use only `aimocont2020/node-api-poc`. An image merely being hosted on Docker Hub is not sufficient.
-2. **Signature verification** — the Node API image must have a valid keyless Cosign signature from this exact GitHub Actions workflow:
+1. **Repository allow-list** — a `ValidatingPolicy` restricts images in `devsecops`, `devsecops-canary`, and `devsecops-bg` to `aimocont2020/node-api-poc`. It does not trust Docker Hub as a whole.
+2. **Signature verification** — an `ImageValidatingPolicy` requires the Node API image to have a valid Cosign keyless signature from this exact workflow identity:
    `https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main`
 
-The policy uses the GitHub Actions OIDC issuer `https://token.actions.githubusercontent.com` and the public Sigstore Rekor transparency log.
+Both policies start with `validationActions: [Audit]`. The modern CEL policy API uses `Deny` to reject non-compliant admissions; this differs from the legacy `ClusterPolicy` API's `validationFailureAction: Enforce`.
 
-> **Important:** Start in `Audit` mode, verify the deployed image has a valid signature, review policy status/results, and only then switch to `Enforce`. Do not enforce image verification before confirming that the tag/digest you deploy was signed by the expected workflow. The signature policy runs at admission time (background scanning is disabled). This PoC has not been applied to a live cluster by these repository changes.
+> **Safety first:** This PR has not been applied to the live cluster. Start in Audit mode, confirm the currently deployed image digest was signed by the expected workflow, review the policy behavior, and only then change `validationActions` from `Audit` to `Deny`.
+
+## Why the newer API is used
+
+Your cluster reports Kyverno `v1.19.1`, and the `ImageValidatingPolicy`, `ValidatingPolicy`, and namespaced variants are installed. Kyverno 1.19 deprecates the legacy `ClusterPolicy` API, with removal planned for v1.20, so this PoC uses:
+
+- `policies.kyverno.io/v1`, kind `ValidatingPolicy` for repository allow-listing.
+- `policies.kyverno.io/v1`, kind `ImageValidatingPolicy` for Cosign signature verification.
+
+The live schema in your cluster is authoritative. Use server-side dry-run before applying either resource.
 
 ## Scope and assumptions
 
-- The Kubernetes namespaces are dedicated to the Node API application: `devsecops`, `devsecops-canary`, and `devsecops-bg`.
-- The approved image repository is `docker.io/aimocont2020/node-api-poc`. If the Docker Hub username or repository changes, update **both** policy files and the GitOps overlays.
-- The CI workflow signs images on pushes to `main`, after the build, vulnerability scan, and push steps succeed.
-- The manifests use the `kyverno.io/v1` `ClusterPolicy` API with `verifyImages` keyless Cosign verification. Check the Kyverno version installed in your cluster before applying. The older `ClusterPolicy` API is suitable for broad compatibility, while newer Kyverno versions also provide the `ImageValidatingPolicy` API.
+- The three listed namespaces are dedicated to the Node API application.
+- Approved image repository: `docker.io/aimocont2020/node-api-poc`.
+- Other images, sidecars, init containers, exporters, and migration tools are not automatically trusted. This allow-list is intentionally strict; amend it only after reviewing which extra repositories are needed.
+- The CI workflow `.github/workflows/ci-security.yml` builds the image, runs Trivy, pushes to Docker Hub, signs the pushed digest with Cosign keyless signing, then verifies the signature.
+- Public image access is assumed. If the image becomes private, ensure Kyverno has appropriate registry credentials.
+- The signature verification policy disables background scanning and evaluates image signatures during admission.
 
-This repository allow-list intentionally allows only the application image in these namespaces. If you later add service-mesh sidecars, init containers, exporters, or migration jobs using other images, explicitly add their trusted repositories rather than broadly allowing all of Docker Hub.
-
-## 1. Inspect Kyverno before applying anything
-
-Run:
+## 1. Inspect Kyverno and the target workloads
 
 ```bash
-kubectl get nodes -o wide
-kubectl get deployments -A | grep -i kyverno
-kubectl get pods -A | grep -i kyverno
-kubectl get clusterpolicies.kyverno.io
-kubectl get crd | grep -i kyverno
-kubectl version
-```
+kubectl config current-context
 
-Confirm the Kyverno version, that the admission controller is Ready, and whether existing policies may already affect these namespaces. If `clusterpolicies.kyverno.io` is not available, stop and check the installed Kyverno policy API/version before applying these files.
+kubectl -n kyverno get deployment kyverno-admission-controller \
+  -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{" = "}{.image}{"\n"}{end}'
 
-Inspect the image currently rendered by Kustomize:
+kubectl get crd | grep 'policies.kyverno.io'
 
-```bash
+kubectl get validatingpolicies.policies.kyverno.io
+kubectl get imagevalidatingpolicies.policies.kyverno.io
+
 kubectl kustomize k8s/overlays/poc | grep -E 'image:'
 kubectl get pods -n devsecops -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'
 ```
 
-Repeat the pod inspection for `devsecops-canary` and `devsecops-bg` if those deployments are running.
+Repeat the Pod inspection for `devsecops-canary` and `devsecops-bg` if those deployments are running. Verify the installed policy CRDs serve `policies.kyverno.io/v1`.
 
 ## 2. Understand the complete signing and admission cycle
 
 ```text
-Developer pushes code / merges to main
-                |
-                v
-GitHub Actions: tests and security checks
-                |
-                v
-Build container image
-                |
-                v
-Trivy scans the image; workflow fails for configured HIGH/CRITICAL findings
-                |
-                v
-Push image to Docker Hub and capture its immutable sha256 digest
-                |
-                v
-Cosign signs that digest using GitHub Actions OIDC (keyless)
-        |                               |
-        v                               v
-Fulcio issues a short-lived certificate     Signature/bundle transparency
-bound to workflow identity                  recorded in public Rekor
-                |
-                v
-Workflow verifies the signature itself
-                |
-                v
+Developer pushes or merges code to main
+                 |
+                 v
+GitHub Actions tests and security checks
+                 |
+                 v
+Build image -> Trivy scan -> push image to Docker Hub
+                 |
+                 v
+Capture immutable sha256 image digest
+                 |
+                 v
+Cosign signs that digest using GitHub Actions OIDC
+          |                            |
+          v                            v
+Fulcio short-lived certificate       Rekor transparency log
+bound to workflow identity           records signing metadata
+                 |
+                 v
+CI verifies the Cosign signature
+                 |
+                 v
 GitOps overlay references the image tag
-                |
-                v
-Kubernetes receives a Deployment / Pod admission request
-                |
-                v
-Kyverno repository policy checks the image name
-                |
-                v
-Kyverno verification policy checks the digest's signature,
-trusted workflow subject, OIDC issuer, and Rekor entry
-                |
-        +-------+-------+
-        |               |
-   verification      verification
-      passes           fails
-        |               |
-        v               v
-admission allowed   Audit: report / Enforce: reject
+                 |
+                 v
+Kubernetes admission request for a Pod
+                 |
+                 +------------------------------+
+                 |                              |
+                 v                              v
+ValidatingPolicy                       ImageValidatingPolicy
+checks repository                      verifies signature and signer
+                 |                              |
+                 +---------------+--------------+
+                                 |
+                    +------------+-----------+
+                    |                        |
+               Validation passes       Validation fails
+                    |                        |
+                    v                        v
+              Audit: allow             Audit: allow + record
+              Deny: allow              Deny: reject admission
 ```
 
-### What each part means
+### What the pieces mean
 
-- **Docker Hub** stores and distributes the container image. Its location alone does not prove who built the image.
-- **Cosign** signs the immutable image digest. Signing the digest binds the signature to those exact image bytes, not just to a mutable tag.
-- **Keyless signing** uses the workflow's OIDC identity instead of a long-lived private key. Fulcio provides a short-lived signing certificate, and Rekor provides a public transparency log.
-- **Kyverno** is the Kubernetes admission-policy engine. Its policy tells Kubernetes which image repository is allowed and which signing identity is trusted.
-- **Digest mutation** makes the admitted workload refer to an immutable image digest rather than relying on a mutable tag. The verification policy enables this behavior.
+- **Docker Hub** distributes the image. Hosting on Docker Hub does not establish who built it.
+- **Cosign** signs the image digest. A digest identifies immutable image content; a tag can move to different content.
+- **Keyless signing** uses the GitHub Actions OIDC identity rather than a long-lived private key. Fulcio issues a short-lived certificate, and Rekor provides a public transparency log.
+- **Kyverno** evaluates the policies at Kubernetes admission. The repository policy checks the allowed image name; the image policy verifies the cryptographic signature against the expected workflow identity.
+- **Digest mutation and verification** help ensure the admitted workload is tied to the verified digest rather than continuing to rely on a mutable tag.
 
-A valid signature means the image digest was signed by the trusted identity and passed the verification rules. By itself, it does **not** prove the image is vulnerability-free, that every dependency is safe, or that an attestation such as an SBOM/provenance document meets a policy. Those require separate checks.
+A valid signature means the digest was signed by the identity that the policy trusts. It does **not** by itself prove the image is vulnerability-free, that its dependencies are safe, or that it has a valid SBOM/provenance attestation. Those require additional checks.
 
-## 3. Confirm that the deployed image has a signature first
+## 3. Verify a deployed image manually before enforcement
 
-Use the exact image tag shown by your selected Kustomize overlay or running Pod, then resolve it to a digest. You can also copy the digest printed by the successful `Push image` step in the GitHub Actions run.
-
-For example, with Cosign installed locally:
+Use the actual image tag from the selected overlay or running Pod. Resolve the tag to its digest with `crane` (or another registry tool), then verify that digest with Cosign.
 
 ```bash
-IMAGE='aimocont2020/node-api-poc:<tag-from-your-overlay>'
+# Replace <tag> with a real tag from your overlay or Pod.
+crane digest docker.io/aimocont2020/node-api-poc:<tag>
 
-# Inspect the image's digest. crane is one option:
-crane digest "$IMAGE"
-
-# Replace <sha256-digest> with the digest returned above, including sha256:
+# Replace <digest> with the real sha256 digest returned above.
 cosign verify \
   --certificate-identity 'https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  'aimocont2020/node-api-poc@sha256:<digest>'
+  'docker.io/aimocont2020/node-api-poc@sha256:<digest>'
 ```
 
-Do not copy the angle-bracket placeholders literally. Verification should return the signature/claim payload. If it fails, check that:
-- the tag was produced by a successful `push` to `main` after Cosign signing was added;
-- `DOCKERHUB_USERNAME` in GitHub Actions matches `aimocont2020`;
-- the image digest is the digest that was signed; and
-- the workflow file and branch in the certificate identity match the policy.
+Do not enter the angle-bracket placeholders literally. Successful verification should return the verified signature/claim payload. If it fails, check that:
 
-Do not switch enforcement on until this manual check succeeds.
+- The image was pushed and signed by a successful run on `main` after the signing step was introduced.
+- The GitHub Actions `DOCKERHUB_USERNAME` secret corresponds to `aimocont2020`.
+- The reference uses the exact digest that was signed.
+- The workflow file, branch, subject and OIDC issuer match the policy.
 
-## 4. Apply the repository allow-list in Audit mode
+Do not switch to `Deny` until this check succeeds for the image you are deploying.
+
+## 4. Server-side dry-run the policies
+
+First inspect the updated manifest files. Then ask the API server to validate each resource without persisting it:
+
+```bash
+kubectl apply --dry-run=server -f kyverno-image-signing-poc/policies/01-restrict-app-image-repository.yaml
+kubectl apply --dry-run=server -f kyverno-image-signing-poc/policies/02-verify-signed-node-api-image.yaml
+```
+
+A successful Kubernetes schema dry-run confirms the API server accepts the resource shape; it does not prove the CEL expression or signature verification works end to end. Review any Kyverno policy status and admission-controller logs as well.
+
+## 5. Apply the repository allow-list in Audit mode
 
 ```bash
 kubectl apply -f kyverno-image-signing-poc/policies/01-restrict-app-image-repository.yaml
-kubectl describe clusterpolicy restrict-node-api-image-repository
+kubectl get validatingpolicy restrict-node-api-image-repository -o yaml
 ```
 
-In `Audit` mode, a disallowed image can still be admitted, but Kyverno should report the policy violation. Inspect the report APIs available in your cluster:
+This checks regular containers and init containers in Pods within the three target namespaces. In `Audit` mode a violation should not block the admission request. Review the policy status, policy reports if generated by the installed reporting components, and Kyverno controller logs.
 
-```bash
-kubectl get policyreport -A
-kubectl get clusterpolicyreport
-kubectl get clusterpolicy restrict-node-api-image-repository -o yaml
-```
-
-The policy targets Pods in the three application namespaces and is written so Kyverno can auto-generate corresponding rules for supported workload controllers. Inspect `status.autogen.rules` after creation. Always check the actual policy status and reports; do not assume the policy is enforced merely because its object exists.
-
-## 5. Apply the Cosign signature policy in Audit mode
+## 6. Apply Cosign verification in Audit mode
 
 ```bash
 kubectl apply -f kyverno-image-signing-poc/policies/02-verify-signed-node-api-image.yaml
-kubectl describe clusterpolicy verify-signed-node-api-image
-kubectl get clusterpolicy verify-signed-node-api-image -o yaml
+kubectl get imagevalidatingpolicy verify-signed-node-api-image -o yaml
+kubectl logs -n kyverno deployment/kyverno-admission-controller --since=10m
 ```
 
-Review the policy status and the admission response; inspect Kyverno admission-controller logs if verification fails. This image-signature policy uses `background: false`, so do not expect a background PolicyReport scan from it. Verification needs network access from the Kyverno admission controller to the image registry and Sigstore services. Private images may require registry credentials; this example assumes the image is publicly readable.
+The `ImageValidatingPolicy` matches Node API image references and verifies Cosign signatures using:
 
-## 6. Test the policy behavior
+- Subject: `https://github.com/aymanlinuxBoy/node-api/.github/workflows/ci-security.yml@refs/heads/main`
+- Issuer: `https://token.actions.githubusercontent.com`
+- Transparency log: `https://rekor.sigstore.dev`
 
-### Negative test: use a different public image
+The policy uses `mutateDigest: true` and `verifyDigest: true`. Since background evaluation is disabled, validate behavior by creating/updating test Pods and reviewing admission results and controller logs; do not expect a background signature scan.
 
-Run this only in one of the dedicated application namespaces while both policies are in Audit mode:
+## 7. Test both outcomes
+
+### Negative test: use an unapproved public image
+
+Run this only in a dedicated application namespace while policies are in Audit mode:
 
 ```bash
 kubectl run kyverno-untrusted-image-test \
@@ -174,15 +182,15 @@ kubectl run kyverno-untrusted-image-test \
   --command -- sleep 60
 ```
 
-In Audit mode, the Pod may be admitted. The expected result is a policy violation in Kyverno's report/status. Clean up the test:
+The repository policy should report a violation, while Audit mode should still allow the Pod object to be created. The image-verification policy only matches the Node API repository. Clean up:
 
 ```bash
 kubectl delete pod kyverno-untrusted-image-test -n devsecops --ignore-not-found
 ```
 
-### Positive test: use a signed Node API image
+### Positive test: use a verified Node API image
 
-Choose a tag that you verified manually in step 3:
+Replace `<verified-tag>` with a tag whose digest passed step 3:
 
 ```bash
 kubectl run kyverno-signed-image-test \
@@ -191,42 +199,49 @@ kubectl run kyverno-signed-image-test \
   --restart=Never
 ```
 
-If the image is successfully verified, inspect the resulting Pod's image field and policy status. Delete the test Pod when finished. This is only a signature test; the app may not become Ready because it needs its normal environment and database configuration.
+This tests admission only. The app might not become Ready because the test Pod lacks the application's normal environment and database configuration. Inspect the Pod's image and admission/controller output, then clean up:
 
-## 7. Switch from Audit to Enforce
+```bash
+kubectl delete pod kyverno-signed-image-test -n devsecops --ignore-not-found
+```
 
-Only after the repository policy reports the expected behavior, the positive signature test succeeds, and the current application image is signed:
+## 8. Move from Audit to Deny
 
-1. In the repository policy, change `spec.validationFailureAction: Audit` to `Enforce`. In the signature policy, change **both** `spec.validationFailureAction: Audit` and `spec.rules[0].verifyImages[0].failureAction: Audit` to `Enforce`.
-2. Apply the changed manifests.
-3. Repeat the negative test. The request to create a Pod using `busybox:1.36` should be rejected by admission.
-4. Repeat the positive test with a verified Node API image. It should be admitted.
-5. Watch the application rollout and check Pod events if it fails.
+Only after the unapproved image generates the expected violation, the signed image is accepted, and the currently deployed image digest is verified:
 
-Do not move directly to cluster-wide enforcement. Keep the scope limited until you intentionally define approved image sources for platform, monitoring, storage, and other namespaces.
+1. In **both** manifests, change `spec.validationActions` from `[Audit]` to `[Deny]`.
+2. Apply the two updated manifests.
+3. Repeat the negative test: `busybox:1.36` should be rejected at admission in the application namespace.
+4. Repeat the positive test with the verified Node API image.
+5. Monitor workload rollouts and Pod events.
 
-## 8. Troubleshooting
+For the new CEL policy APIs, the action is `Deny`; do not use the legacy `ClusterPolicy` field `validationFailureAction: Enforce`.
 
-- **Policy object exists but images are still admitted:** check the correct failure-action field for that policy, `status.conditions`, the namespace match, the policy's `verifyImages.failureAction`, and Kyverno admission-controller health. Audit mode intentionally does not reject requests.
-- **A Deployment is accepted but its Pods fail:** inspect the Pod events; the auto-generated Pod-template policy may be rejecting the image when the ReplicaSet creates it.
-- **Signature verification fails:** confirm the exact digest was signed, the signature exists in Docker Hub, the subject matches the full workflow identity, the issuer is `https://token.actions.githubusercontent.com`, and the controller can reach Docker Hub and Rekor.
-- **An application Pod is unexpectedly rejected by the repository policy:** inspect every container, initContainer and ephemeralContainer. The policy intentionally permits only the Node API image in the selected namespaces.
-- **No PolicyReport CRDs exist:** check the installed Kyverno version and reporting features. The signature policy runs at admission time with background scanning disabled, so use admission responses and controller logs to diagnose verification failures.
+Do not make these policies cluster-wide without separately designing an approved-image strategy for Rancher, monitoring, storage, and other platform namespaces.
+
+## Troubleshooting
+
+- **Server-side dry-run rejects a field:** check that the manifest uses `apiVersion: policies.kyverno.io/v1` and the relevant installed CRD is serving `v1`.
+- **Unapproved image is still admitted in Audit mode:** this is expected. Check the policy status and audit/reporting output. Change to `Deny` only after validation.
+- **Unapproved image remains admitted after switching to Deny:** verify that the policy is Ready, the Pod namespace matches the `matchConditions`, and the admission controller is healthy.
+- **Signature verification fails:** check the exact image digest, public registry reachability from Kyverno, Rekor reachability, the signer subject, and the issuer.
+- **A Pod includes a sidecar or init container:** this PoC intentionally treats these namespaces as application-image-only. Add and verify any additional images explicitly before enabling Deny.
 
 ## Cleanup
 
-Delete the policies if you need to roll back this PoC:
+If you need to roll back these checks, delete the two policy resources:
 
 ```bash
 kubectl delete -f kyverno-image-signing-poc/policies/02-verify-signed-node-api-image.yaml
 kubectl delete -f kyverno-image-signing-poc/policies/01-restrict-app-image-repository.yaml
 ```
 
-Deleting these policies removes their admission checks; it does not delete the application workload.
+Deleting a policy removes its admission checks; it does not delete application workloads.
 
 ## References
 
-- [Kyverno: Verify Images overview](https://kyverno.io/docs/policy-types/cluster-policy/verify-images/overview/)
-- [Kyverno: Sigstore keyless verification](https://kyverno.io/docs/policy-types/cluster-policy/verify-images/sigstore/)
-- [Kyverno: Restrict Image Registries policy](https://kyverno.io/policies/best-practices/restrict-image-registries/restrict-image-registries/)
-- [Sigstore: Verifying signatures](https://docs.sigstore.dev/cosign/verifying/verify/)
+- [Kyverno 1.19 release announcement](https://kyverno.io/blog/2026/08/20/announcing-kyverno-release-1.19/)
+- [Kyverno policy type overview](https://kyverno.io/docs/policy-types/overview/)
+- [Kyverno ValidatingPolicy](https://kyverno.io/docs/policy-types/validating-policy/)
+- [Kyverno ImageValidatingPolicy](https://kyverno.io/docs/policy-types/image-validating-policy/)
+- [Sigstore Cosign verification](https://docs.sigstore.dev/cosign/verifying/verify/)
