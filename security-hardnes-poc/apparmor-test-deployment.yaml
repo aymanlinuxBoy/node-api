@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apparmor-test
+  namespace: default
+  labels:
+    app: apparmor-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apparmor-test
+  template:
+    metadata:
+      labels:
+        app: apparmor-test
+    spec:
+      containers:
+        - name: tester
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - "echo 'AppArmor/Falco test container started'; sleep 36000"
+          securityContext:
+            allowPrivilegeEscalation: false
+            appArmorProfile:
+              type: Localhost
+              localhostProfile: k8s-apparmor-deny-write
