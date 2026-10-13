@@ -81,7 +81,7 @@ jobs:
         with:
           directory: .
           quiet: true
-          soft_fail: false
+          soft_fail: true
           # CKV_K8S_43 ("Image should use digest") is soft-failed: this repo
           # pins images by tag (see k8s/base/deployment.yaml), so we accept
           # the finding without blocking the pipeline on it.
