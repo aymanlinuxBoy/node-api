@@ -8,4 +8,4 @@ resources:
 images:
   - name: node-api-poc
     newName: aimocont2020/node-api-poc
-    newTag: "e5e9ddbb0dd7"
+    newTag: "0085242ff4e0"
