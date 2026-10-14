@@ -10,9 +10,11 @@ loki:
         period: 24h
   storageConfig:
     filesystem:
-      directory: /loki/boltdb-shipper-data
+      directory: /var/loki/boltdb-shipper-data
     boltdb_shipper:
       shared_store: filesystem
+      active_index_directory: /var/loki/boltdb-shipper-active
+      cache_location: /var/loki/boltdb-shipper-cache
   auth_enabled: false
   limits_config:
     max_cache_freshness_per_query: 10m
@@ -35,6 +37,10 @@ distributor:
 ingester:
   replicas: 2
   maxUnavailable: 1
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 10Gi
   resources:
     requests:
       cpu: 100m
@@ -46,6 +52,10 @@ ingester:
 querier:
   replicas: 2
   maxUnavailable: 1
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 10Gi
   resources:
     requests:
       cpu: 100m
@@ -75,11 +85,6 @@ gateway:
     limits:
       cpu: 200m
       memory: 256Mi
-
-persistence:
-  enabled: true
-  storageClassName: local-path
-  size: 10Gi
 
 minio:
   enabled: false
