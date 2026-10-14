@@ -10,11 +10,11 @@ loki:
         period: 24h
   storageConfig:
     filesystem:
-      directory: /var/loki/boltdb-shipper-data
+      directory: /var/loki-shared/boltdb-shipper-data
     boltdb_shipper:
       shared_store: filesystem
-      active_index_directory: /var/loki/boltdb-shipper-active
-      cache_location: /var/loki/boltdb-shipper-cache
+      active_index_directory: /var/loki-shared/boltdb-shipper-active
+      cache_location: /var/loki-shared/boltdb-shipper-cache
   auth_enabled: false
   limits_config:
     max_cache_freshness_per_query: 10m
@@ -35,12 +35,16 @@ distributor:
       memory: 512Mi
 
 ingester:
-  replicas: 2
-  maxUnavailable: 1
+  replicas: 1
   persistence:
-    enabled: true
-    storageClass: local-path
-    size: 10Gi
+    enabled: false
+  extraVolumes:
+    - name: shared-data
+      persistentVolumeClaim:
+        claimName: loki-shared-data
+  extraVolumeMounts:
+    - name: shared-data
+      mountPath: /var/loki-shared
   resources:
     requests:
       cpu: 100m
@@ -50,12 +54,29 @@ ingester:
       memory: 512Mi
 
 querier:
-  replicas: 2
-  maxUnavailable: 1
+  replicas: 1
   persistence:
-    enabled: true
-    storageClass: local-path
-    size: 10Gi
+    enabled: false
+  extraVolumes:
+    - name: shared-data
+      persistentVolumeClaim:
+        claimName: loki-shared-data
+  extraVolumeMounts:
+    - name: shared-data
+      mountPath: /var/loki-shared
+  # Force co-location with the ingester pod so both can mount the same
+  # ReadWriteOnce local-path PVC (filesystem object store has no shared
+  # storage otherwise - see loki-shared-data PVC).
+  affinity: |
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - ingester
+          topologyKey: kubernetes.io/hostname
   resources:
     requests:
       cpu: 100m
