@@ -21,7 +21,7 @@ targets:
             [OUTPUT]
                 Name              loki
                 Match             kube.var.log.*
-                Host              loki-gateway.logging.svc.cluster.local
+                Host              loki-loki-distributed-gateway.logging.svc.cluster.local
                 Port              80
                 Labels            job=fluent-bit, source=container-logs, cluster=downstream
                 auto_kubernetes_labels On
@@ -30,7 +30,7 @@ targets:
             [OUTPUT]
                 Name              loki
                 Match             kube.events
-                Host              loki-gateway.logging.svc.cluster.local
+                Host              loki-loki-distributed-gateway.logging.svc.cluster.local
                 Port              80
                 Labels            job=fluent-bit, source=k8s-events, cluster=downstream
                 Line_Format       json
@@ -52,7 +52,7 @@ targets:
             [OUTPUT]
                 Name              loki
                 Match             kube.var.log.*
-                Host              loki-gateway.logging.svc.cluster.local
+                Host              10.43.252.38
                 Port              80
                 Labels            job=fluent-bit, source=container-logs, cluster=local
                 auto_kubernetes_labels On
@@ -61,7 +61,7 @@ targets:
             [OUTPUT]
                 Name              loki
                 Match             kube.events
-                Host              loki-gateway.logging.svc.cluster.local
+                Host              10.43.252.38
                 Port              80
                 Labels            job=fluent-bit, source=k8s-events, cluster=local
                 Line_Format       json
