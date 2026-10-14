@@ -1,5 +1,5 @@
 loki:
-  config:
+  config: |
     auth_enabled: false
     limits_config:
       max_cache_freshness_per_query: 10m
