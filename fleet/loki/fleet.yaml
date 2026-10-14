@@ -14,6 +14,10 @@ targets:
     clusterSelector:
       matchLabels:
         env: downstream
+    helm:
+      values:
+        global:
+          dnsService: rke2-coredns-rke2-coredns
 
   - name: local
     clusterSelector:
