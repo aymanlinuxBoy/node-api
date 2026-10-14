@@ -1,0 +1,28 @@
+---
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: loki
+  namespace: fleet-default
+spec:
+  repo: https://github.com/aymanlinuxBoy/node-api.git
+  branch: main
+  paths:
+    - fleet/loki
+  targets:
+    - name: default
+      clusterSelector: {}
+---
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: loki
+  namespace: fleet-local
+spec:
+  repo: https://github.com/aymanlinuxBoy/node-api.git
+  branch: main
+  paths:
+    - fleet/loki
+  targets:
+    - name: local
+      clusterSelector: {}

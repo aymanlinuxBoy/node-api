@@ -1,0 +1,21 @@
+---
+defaultNamespace: logging
+
+helm:
+  repo: https://grafana.github.io/helm-charts
+  chart: loki-distributed
+  version: "0.69.0"
+  releaseName: loki
+  valuesFiles:
+    - values.yaml
+
+targets:
+  - name: default
+    clusterSelector:
+      matchLabels:
+        env: downstream
+
+  - name: local
+    clusterSelector:
+      matchLabels:
+        env: local
