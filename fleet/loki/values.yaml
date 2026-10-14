@@ -78,7 +78,7 @@ gateway:
 
 persistence:
   enabled: true
-  storageClassName: longhorn
+  storageClassName: local-path
   size: 10Gi
 
 minio:
