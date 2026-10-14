@@ -23,6 +23,7 @@ loki:
 
 distributor:
   replicas: 2
+  maxUnavailable: 1
   resources:
     requests:
       cpu: 100m
@@ -33,6 +34,7 @@ distributor:
 
 ingester:
   replicas: 2
+  maxUnavailable: 1
   resources:
     requests:
       cpu: 100m
@@ -43,6 +45,7 @@ ingester:
 
 querier:
   replicas: 2
+  maxUnavailable: 1
   resources:
     requests:
       cpu: 100m
