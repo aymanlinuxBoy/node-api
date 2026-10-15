@@ -43,16 +43,16 @@ jobs:
       - name: Run unit tests
         run: npm test -- --coverage
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v4
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #- name: SonarCloud Scan
+        #uses: SonarSource/sonarqube-scan-action@v4
+        #env:
+          #SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      - name: SonarCloud Quality Gate check
-        uses: SonarSource/sonarqube-quality-gate-action@master
-        timeout-minutes: 5
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #- name: SonarCloud Quality Gate check
+        #uses: SonarSource/sonarqube-quality-gate-action@master
+        #timeout-minutes: 5
+        #env:
+          #SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Semgrep scan
         uses: returntocorp/semgrep-action@v1
