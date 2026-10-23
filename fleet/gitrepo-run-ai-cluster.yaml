@@ -1,0 +1,16 @@
+---
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: run-ai-cluster
+  namespace: fleet-default
+spec:
+  repo: https://github.com/aymanlinuxBoy/node-api.git
+  branch: main
+  paths:
+    - fleet/run-ai-cluster
+  targets:
+    - name: downstream
+      clusterSelector:
+        matchLabels:
+          env: downstream

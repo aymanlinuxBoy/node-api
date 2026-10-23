@@ -1,0 +1,50 @@
+---
+## NVIDIA GPU Operator Helm values
+## Docs: https://github.com/NVIDIA/gpu-operator
+
+driver:
+  enabled: true
+  version: "550"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+toolkit:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+dcgm:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+dcgmExporter:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+driver-capabilities: "compute,utility,graphics,video"
+
+migStrategy: "none"

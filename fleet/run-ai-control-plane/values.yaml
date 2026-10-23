@@ -1,0 +1,53 @@
+---
+## Run:ai Control Plane Helm values
+## Docs: https://docs.run.ai/self-hosted/install-control-plane
+
+global:
+  domain: "runai-control.integrant.com"
+  ingress:
+    ingressClass: "haproxy"
+    annotations:
+      cert-manager.io/cluster-issuer: "intermediate-ca"
+    tls:
+      enabled: true
+      secretName: "wildcard-integrant-tls"
+
+tenantsManager:
+  config:
+    adminUsername: "admin@integrant.com"
+    # Password will be provided via secret or changed after deployment
+    adminPassword: "ChangeMe123!@#"
+
+# Control plane components resource limits
+apiBackend:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+tenantsManagerService:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+
+# Disable components not needed for testing
+workspaces:
+  enabled: true
+policies:
+  enabled: true
+projects:
+  enabled: true
+
+kubernetesDistribution: "generic"
+
+customCA:
+  enabled: false

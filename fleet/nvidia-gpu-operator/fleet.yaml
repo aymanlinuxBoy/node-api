@@ -1,0 +1,16 @@
+---
+defaultNamespace: nvidia-gpu-operator
+
+helm:
+  repo: https://nvidia.github.io/gpu-operator
+  chart: gpu-operator
+  version: "v25.1.0"
+  releaseName: gpu-operator
+  valuesFiles:
+    - values.yaml
+
+targets:
+  - name: downstream
+    clusterSelector:
+      matchLabels:
+        env: downstream

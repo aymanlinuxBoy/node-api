@@ -1,0 +1,16 @@
+---
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: nvidia-gpu-operator
+  namespace: fleet-default
+spec:
+  repo: https://github.com/aymanlinuxBoy/node-api.git
+  branch: main
+  paths:
+    - fleet/nvidia-gpu-operator
+  targets:
+    - name: downstream
+      clusterSelector:
+        matchLabels:
+          env: downstream

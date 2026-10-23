@@ -1,0 +1,20 @@
+---
+defaultNamespace: runai-backend
+
+helm:
+  repo: https://helm.ngc.nvidia.com/nvidia/runai
+  chart: control-plane
+  version: "2.25.0"
+  releaseName: runai-backend
+  valuesFiles:
+    - values.yaml
+  username: "$oauthtoken"
+  passwordFromSecret:
+    name: runai-ngc-secret
+    key: ngc-api-key
+
+targets:
+  - name: local
+    clusterSelector:
+      matchLabels:
+        env: local
