@@ -1,0 +1,49 @@
+---
+## Cert-Manager Helm values
+## Docs: https://cert-manager.io/docs/installation/helm-values/
+
+global:
+  leaderElection:
+    namespace: cert-manager
+
+installCRDs: true
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+webhook:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+cainjector:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+serviceAccount:
+  create: true
+  name: cert-manager
+
+rbac:
+  create: true
+
+prometheus:
+  enabled: false

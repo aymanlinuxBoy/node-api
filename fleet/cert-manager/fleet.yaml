@@ -1,0 +1,20 @@
+---
+defaultNamespace: cert-manager
+
+helm:
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: "v1.14.4"
+  releaseName: cert-manager
+  valuesFiles:
+    - values.yaml
+
+targets:
+  - name: upstream
+    clusterSelector:
+      matchLabels:
+        env: upstream
+  - name: downstream
+    clusterSelector:
+      matchLabels:
+        env: downstream
