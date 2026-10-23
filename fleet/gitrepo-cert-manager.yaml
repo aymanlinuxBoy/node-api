@@ -10,10 +10,10 @@ spec:
   paths:
     - fleet/cert-manager
   targets:
-    - name: upstream
+    - name: local
       clusterSelector:
         matchLabels:
-          env: upstream
+          env: local
     - name: downstream
       clusterSelector:
         matchLabels:
