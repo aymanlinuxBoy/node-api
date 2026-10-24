@@ -4,7 +4,6 @@ defaultNamespace: runai
 helm:
   repo: https://helm.ngc.nvidia.com/nvidia/runai
   chart: runai-cluster
-  version: "2.25.0"
   releaseName: runai-cluster
   valuesFiles:
     - values.yaml
