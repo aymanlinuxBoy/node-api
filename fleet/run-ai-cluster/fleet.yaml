@@ -2,15 +2,11 @@
 defaultNamespace: runai
 
 helm:
-  repo: https://helm.ngc.nvidia.com/nvidia/runai
+  repo: https://$oauthtoken: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@helm.ngc.nvidia.com/nvidia/runai
   chart: runai-cluster
   releaseName: runai-cluster
   valuesFiles:
     - values.yaml
-  username: "$oauthtoken"
-  passwordFromSecret:
-    name: runai-ngc-secret
-    key: ngc-api-key
 
 targets:
   - name: downstream
