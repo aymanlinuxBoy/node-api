@@ -2,7 +2,7 @@
 defaultNamespace: runai-backend
 
 helm:
-  repo: https://$oauthtoken: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@helm.ngc.nvidia.com/nvidia/runai
+  repo: https://ayman.alyhassan87@gmail.com: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@helm.ngc.nvidia.com/nvidia/runai
   chart: control-plane
   releaseName: runai-backend
   valuesFiles:
