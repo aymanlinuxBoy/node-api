@@ -1,24 +1,28 @@
 ---
-# ┌─────────────────────────────────────────────────────────────┐
-# │              MetalLB — L2 Mode Only                         │
-# │                                                             │
-# │  Pools:                                                     │
-# │    ingress-pool   → 10.50.0.100     (Traefik, kube-system) │
-# │    monitoring-pool→ 176.57.189.45   (Grafana, Prometheus)  │
-# │    apps-pool      → 94.250.202.136  (general workloads)    │
-# │                     173.249.48.125                          │
-# │                                                             │
-# │  ingress VIP floats (HA) — public IPs pinned to owner node │
-# │  No BGP — pure L2/ARP advertisement on br-metallb.         │
-# └─────────────────────────────────────────────────────────────┘
+# ┌──────────────────────────────────────────────────────────────────┐
+# │               MetalLB — L2 Mode Only                            │
+# │                                                                  │
+# │  Pools:                                                          │
+# │    ingress-internal → 10.50.0.100     (Run:ai internal VIP)     │
+# │    ingress-public   → 176.57.189.45   (Traefik public — MetalLB)│
+# │    apps-pool        → 94.250.202.136  (general workloads)       │
+# │                        173.249.48.125                            │
+# │                                                                  │
+# │  Grafana:    grafana.176.57.189.45.sslip.io → MetalLB → Traefik │
+# │  Prometheus: prometheus.176.57.189.45.sslip.io → MetalLB        │
+# │                                                                  │
+# │  ingress-internal floats (HA) — public IPs pinned to owner node  │
+# │  No BGP — pure L2/ARP advertisement on br-metallb.              │
+# └──────────────────────────────────────────────────────────────────┘
 
 ---
-# Pool 1 — Traefik / Run:ai ingress VIP
-# Manual assignment only — restricted to kube-system namespace
+# Pool 1 — Run:ai internal ingress VIP
+# 10.50.0.100 is not a public IP — used for in-cluster Run:ai routing only.
+# autoAssign: false — Traefik claims it via metallb.io/address-pool annotation.
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-  name: ingress-pool
+  name: ingress-internal
   namespace: metallb-system
 spec:
   addresses:
@@ -31,26 +35,29 @@ spec:
       - kube-system
 
 ---
-# Pool 2 — Monitoring stack (Grafana, Prometheus, Thanos)
-# Dedicated to monitoring namespace — prevents any other service grabbing it
+# Pool 2 — Traefik public ingress VIP
+# 176.57.189.45 is the control-plane (vmi3565261) public IP.
+# MetalLB advertises this via ARP so all *.176.57.189.45.sslip.io ingress
+# hostnames (Grafana, Prometheus, etc.) are served through MetalLB → Traefik.
+# autoAssign: false — Traefik claims it via metallb.io/address-pool annotation.
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-  name: monitoring-pool
+  name: ingress-public
   namespace: metallb-system
 spec:
   addresses:
-    - 176.57.189.45/32    # vmi3565261 (control-plane)
-  autoAssign: true
+    - 176.57.189.45/32
+  autoAssign: false
   avoidBuggyIPs: false
   serviceAllocation:
     priority: 20
     namespaces:
-      - monitoring
+      - kube-system
 
 ---
 # Pool 3 — General workloads / apps
-# Available to all other namespaces, auto-assigned
+# Available to all namespaces, auto-assigned.
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -64,34 +71,32 @@ spec:
   avoidBuggyIPs: false
 
 ---
-# L2 Advertisement — ingress-pool, no nodeSelector
-# 10.50.0.100 is a VIP (not physically bound to any NIC) so MetalLB can
-# elect any node as the ARP speaker. When a node fails, MetalLB automatically
-# moves the VIP to a healthy node. Traefik is a DaemonSet so it runs on all
-# nodes — failover is seamless with no manual intervention.
+# L2 Advertisement — ingress-internal VIP floats for HA
+# 10.50.0.100 is not physically bound to any NIC so MetalLB can
+# elect any node as speaker — automatic failover when a node goes down.
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-  name: l2-ingress
+  name: l2-ingress-internal
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - ingress-pool
+    - ingress-internal
   interfaces:
     - br-metallb
-  # No nodeSelectors — MetalLB elects the speaker dynamically for HA
+  # No nodeSelectors — MetalLB elects speaker dynamically for HA
 
 ---
-# L2 Advertisement — monitoring-pool pinned to control-plane node
-# 176.57.189.45 is the control-plane's public IP
+# L2 Advertisement — ingress-public pinned to vmi3565261
+# 176.57.189.45 is physically on vmi3565261's NIC — must stay on that node.
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-  name: l2-monitoring
+  name: l2-ingress-public
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - monitoring-pool
+    - ingress-public
   interfaces:
     - br-metallb
   nodeSelectors:
@@ -100,8 +105,6 @@ spec:
 
 ---
 # L2 Advertisement — apps-pool: each IP pinned to its owning GPU worker node
-# MetalLB will assign 94.250.202.136 services to vmi3565262
-# and 173.249.48.125 services to vmi3577894
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
