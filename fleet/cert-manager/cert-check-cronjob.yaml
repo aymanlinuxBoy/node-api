@@ -1,0 +1,209 @@
+---
+# ServiceAccount with read-only access to certs, secrets, ingresses, and issuers
+# scoped to what the cert-check agent needs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-check-agent
+  namespace: cert-manager
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cert-check-agent
+rules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "clusterissuers", "issuers"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-check-agent
+subjects:
+  - kind: ServiceAccount
+    name: cert-check-agent
+    namespace: cert-manager
+roleRef:
+  kind: ClusterRole
+  name: cert-check-agent
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cert-check-agent
+  namespace: cert-manager
+  labels:
+    app: cert-check-agent
+    component: observability
+spec:
+  # Runs daily at 08:00 UTC
+  schedule: "0 8 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # Fail the job if the check doesn't complete in 5 minutes
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: cert-check-agent
+        spec:
+          serviceAccountName: cert-check-agent
+          restartPolicy: Never
+          containers:
+            - name: cert-check
+              # bitnami/kubectl includes both kubectl and openssl
+              image: bitnami/kubectl:1.29
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+
+                  WARN_DAYS=${WARN_DAYS:-30}
+                  CRIT_DAYS=${CRIT_DAYS:-7}
+                  warnings=0
+                  criticals=0
+
+                  log_ok()   { echo "[OK]   $*"; }
+                  log_warn() { echo "[WARN] $*"; ((warnings++)); }
+                  log_crit() { echo "[CRIT] $*"; ((criticals++)); }
+                  log_info() { echo "[INFO] $*"; }
+
+                  days_until_expiry() {
+                    local ns=$1 secret=$2
+                    local cert_pem
+                    cert_pem=$(kubectl get secret "$secret" -n "$ns" \
+                      -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null) || return 1
+                    [[ -z "$cert_pem" ]] && return 1
+                    local expiry_date
+                    expiry_date=$(echo "$cert_pem" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2) || return 1
+                    local expiry_epoch now_epoch
+                    expiry_epoch=$(date -d "$expiry_date" +%s) || return 1
+                    now_epoch=$(date +%s)
+                    echo $(( (expiry_epoch - now_epoch) / 86400 ))
+                  }
+
+                  check_cert() {
+                    local ns=$1 name=$2
+                    echo "--- Certificate: $name (ns: $ns)"
+                    local ready renew_before secret_name
+                    ready=$(kubectl get certificate "$name" -n "$ns" \
+                      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+                    renew_before=$(kubectl get certificate "$name" -n "$ns" \
+                      -o jsonpath='{.spec.renewBefore}' 2>/dev/null)
+                    secret_name=$(kubectl get certificate "$name" -n "$ns" \
+                      -o jsonpath='{.spec.secretName}' 2>/dev/null)
+
+                    if [[ "$ready" == "True" ]]; then
+                      log_ok "Ready"
+                    else
+                      log_crit "NOT Ready — status: ${ready:-unknown}"
+                    fi
+
+                    if [[ -n "$renew_before" ]]; then
+                      log_ok "Auto-renewal: renewBefore=$renew_before"
+                    else
+                      log_warn "No explicit renewBefore — cert-manager uses 2/3-duration default"
+                    fi
+
+                    if [[ -n "$secret_name" ]]; then
+                      local days
+                      if days=$(days_until_expiry "$ns" "$secret_name" 2>/dev/null); then
+                        if (( days <= 0 )); then
+                          log_crit "EXPIRED ${days#-} days ago (secret: $secret_name)"
+                        elif (( days <= CRIT_DAYS )); then
+                          log_crit "Expires in $days days — CRITICAL (secret: $secret_name)"
+                        elif (( days <= WARN_DAYS )); then
+                          log_warn "Expires in $days days (secret: $secret_name)"
+                        else
+                          log_ok "Expires in $days days (secret: $secret_name)"
+                        fi
+                      else
+                        log_warn "Cannot read expiry from secret $secret_name"
+                      fi
+                    fi
+                  }
+
+                  echo "=== cert-manager Certificate resources in runai ==="
+                  mapfile -t certs < <(kubectl get certificates -n runai \
+                    --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null || true)
+                  if [[ ${#certs[@]} -eq 0 ]]; then
+                    log_info "No Certificate resources in runai ns"
+                  else
+                    for c in "${certs[@]}"; do check_cert "runai" "$c"; done
+                  fi
+
+                  echo "=== Wildcard cert (cert-manager ns) ==="
+                  check_cert "cert-manager" "wildcard-integrant-com"
+
+                  echo "=== TLS secrets in runai ns ==="
+                  mapfile -t secrets < <(kubectl get secrets -n runai \
+                    --field-selector type=kubernetes.io/tls \
+                    --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null || true)
+                  for s in "${secrets[@]}"; do
+                    managed=$(kubectl get secret "$s" -n runai \
+                      -o jsonpath='{.metadata.annotations.cert-manager\.io/certificate-name}' 2>/dev/null || true)
+                    if [[ -n "$managed" ]]; then
+                      log_ok "Secret $s: managed by cert-manager (cert: $managed)"
+                    else
+                      log_warn "Secret $s: NOT managed by cert-manager — manual renewal needed"
+                    fi
+                    days=$(days_until_expiry "runai" "$s" 2>/dev/null || echo "err")
+                    if [[ "$days" == "err" ]]; then
+                      log_warn "Secret $s: cannot parse expiry"
+                    elif (( days <= CRIT_DAYS )); then
+                      log_crit "Secret $s: expires in $days days"
+                    elif (( days <= WARN_DAYS )); then
+                      log_warn "Secret $s: expires in $days days"
+                    else
+                      log_ok "Secret $s: expires in $days days"
+                    fi
+                  done
+
+                  echo "=== ClusterIssuer: intermediate-ca ==="
+                  ready=$(kubectl get clusterissuer intermediate-ca \
+                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+                  if [[ "$ready" == "True" ]]; then
+                    log_ok "ClusterIssuer intermediate-ca is Ready"
+                  else
+                    log_crit "ClusterIssuer intermediate-ca NOT Ready: ${ready:-unknown}"
+                  fi
+
+                  echo "=== Summary ==="
+                  echo "Warnings: $warnings  Criticals: $criticals"
+                  if (( criticals > 0 )); then
+                    echo "RESULT: CRITICAL"
+                    exit 2
+                  elif (( warnings > 0 )); then
+                    echo "RESULT: WARNING"
+                    exit 1
+                  else
+                    echo "RESULT: ALL GOOD"
+                    exit 0
+                  fi
+              env:
+                - name: WARN_DAYS
+                  value: "30"
+                - name: CRIT_DAYS
+                  value: "7"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi

@@ -1,0 +1,356 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-runai-gpu
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  runai-gpu.json: |-
+    {
+      "title": "Run:ai — GPU Utilization & Quota",
+      "uid": "runai-gpu-quota",
+      "schemaVersion": 38,
+      "version": 2,
+      "refresh": "30s",
+      "time": { "from": "now-3h", "to": "now" },
+      "timezone": "browser",
+      "tags": ["runai", "gpu", "quota"],
+      "templating": {
+        "list": [
+          {
+            "name": "project",
+            "label": "Project",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "query": "label_values(runai_allocated_gpu_count_per_project, project)",
+            "multi": false,
+            "includeAll": true,
+            "allValue": ".*",
+            "current": { "text": "All", "value": "$__all" },
+            "refresh": 2,
+            "sort": 1
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Total Allocated GPUs",
+          "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 4 }, { "color": "red", "value": 8 }] },
+              "unit": "short", "mappings": []
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(runai_allocated_gpu_count_per_project{project=~\"$project\"})", "instant": true, "legendFormat": "Allocated" }]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Total Quota (Deserved) GPUs",
+          "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "unit": "short", "mappings": [] } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(runai_deserved_gpu_count_per_project{project=~\"$project\"})", "instant": true, "legendFormat": "Deserved" }]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Idle GPUs (Quota − Allocated)",
+          "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 4 }] },
+              "unit": "short", "mappings": []
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(runai_deserved_gpu_count_per_project{project=~\"$project\"}) - sum(runai_allocated_gpu_count_per_project{project=~\"$project\"})", "instant": true, "legendFormat": "Idle" }]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Pending Workloads",
+          "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] },
+              "unit": "short", "mappings": []
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(runai_workload_count_per_type_per_phase_per_cluster{phase=\"Pending\"})", "instant": true, "legendFormat": "Pending" }]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Quota Pressure (Allocated / Deserved)",
+          "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.7 }, { "color": "red", "value": 0.9 }] },
+              "unit": "percentunit", "min": 0, "max": 1, "mappings": []
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(runai_allocated_gpu_count_per_project{project=~\"$project\"}) / sum(runai_deserved_gpu_count_per_project{project=~\"$project\"})", "instant": true, "legendFormat": "Pressure" }]
+        },
+        {
+          "id": 20,
+          "type": "stat",
+          "title": "Total Workloads",
+          "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "purple" }, "unit": "short", "mappings": [] } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(runai_workload_count_per_project{project=~\"$project\"})", "instant": true, "legendFormat": "Workloads" }]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "GPU Allocation per Project over Time",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "linear", "showPoints": "never", "spanNulls": false },
+              "unit": "short"
+            }
+          },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_allocated_gpu_count_per_project{project=~\"$project\"}", "legendFormat": "{{project}} — allocated" },
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_deserved_gpu_count_per_project{project=~\"$project\"}", "legendFormat": "{{project}} — quota" }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Pending vs Running Workloads over Time",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 15, "drawStyle": "line", "lineInterpolation": "stepAfter", "showPoints": "never", "spanNulls": false },
+              "unit": "short"
+            }
+          },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_workload_count_per_type_per_phase_per_cluster{detailed_status=\"Pending\"}", "legendFormat": "{{workload_type}} — Pending" },
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_workload_count_per_type_per_phase_per_cluster{detailed_status=\"Running\"}", "legendFormat": "{{workload_type}} — Running" }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "bargauge",
+          "title": "Quota Pressure per Project",
+          "gridPos": { "x": 0, "y": 12, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.7 }, { "color": "red", "value": 0.9 }] },
+              "unit": "percentunit", "min": 0, "max": 1
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_allocated_gpu_count_per_project{project=~\"$project\"} / runai_deserved_gpu_count_per_project{project=~\"$project\"}", "instant": true, "legendFormat": "{{project}}" }]
+        },
+        {
+          "id": 9,
+          "type": "bargauge",
+          "title": "Idle GPUs per Project",
+          "gridPos": { "x": 8, "y": 12, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 4 }] },
+              "unit": "short", "min": 0
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_deserved_gpu_count_per_project{project=~\"$project\"} - runai_allocated_gpu_count_per_project{project=~\"$project\"}", "instant": true, "legendFormat": "{{project}}" }]
+        },
+        {
+          "id": 21,
+          "type": "bargauge",
+          "title": "Workloads per Project by Status",
+          "gridPos": { "x": 16, "y": 12, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3 }, { "color": "red", "value": 8 }] },
+              "unit": "short", "min": 0
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true },
+          "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (project, status) (runai_workload_info_enriched{project=~\"$project\"})", "instant": true, "legendFormat": "{{project}} / {{status}}" }]
+        },
+        {
+          "id": 11,
+          "type": "table",
+          "title": "Workloads per Project — Detail",
+          "gridPos": { "x": 0, "y": 19, "w": 24, "h": 10 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "short" },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "project" }, "properties": [{ "id": "displayName", "value": "Project" }, { "id": "custom.width", "value": 120 }] },
+              { "matcher": { "id": "byName", "options": "workload_name" }, "properties": [{ "id": "displayName", "value": "Workload" }, { "id": "custom.width", "value": 180 }] },
+              { "matcher": { "id": "byName", "options": "workload_type" }, "properties": [{ "id": "displayName", "value": "Type" }, { "id": "custom.width", "value": 100 }] },
+              { "matcher": { "id": "byName", "options": "status" }, "properties": [
+                  { "id": "displayName", "value": "Status" },
+                  { "id": "custom.width", "value": 110 },
+                  { "id": "custom.displayMode", "value": "color-background" },
+                  { "id": "mappings", "value": [
+                    { "type": "value", "options": { "Running": { "color": "green", "index": 0 }, "Pending": { "color": "yellow", "index": 1 }, "Completed": { "color": "blue", "index": 2 }, "Failed": { "color": "red", "index": 3 } } }
+                  ]}
+              ]},
+              { "matcher": { "id": "byName", "options": "Value #gpus" }, "properties": [{ "id": "displayName", "value": "GPUs" }, { "id": "custom.width", "value": 80 }] },
+              { "matcher": { "id": "byName", "options": "Value #cpu" }, "properties": [{ "id": "displayName", "value": "CPU Cores" }, { "id": "unit", "value": "short" }, { "id": "custom.width", "value": 100 }] },
+              { "matcher": { "id": "byName", "options": "Value #memory" }, "properties": [{ "id": "displayName", "value": "Memory" }, { "id": "unit", "value": "bytes" }, { "id": "custom.width", "value": 110 }] },
+              { "matcher": { "id": "byName", "options": "department" }, "properties": [{ "id": "displayName", "value": "Department" }, { "id": "custom.width", "value": 120 }] },
+              { "matcher": { "id": "byName", "options": "nodepool" }, "properties": [{ "id": "displayName", "value": "Node Pool" }, { "id": "custom.width", "value": 110 }] }
+            ]
+          },
+          "options": {
+            "sortBy": [{ "displayName": "Status", "desc": false }],
+            "footer": { "show": false }
+          },
+          "transformations": [
+            { "id": "merge", "options": {} },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true, "__name__": true, "job": true, "instance": true,
+                  "workload_id": true, "queue_name": true, "workload_category": true,
+                  "is_gpu": true, "detailed_status": true, "Value #info": true
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "runai_workload_info_enriched{project=~\"$project\"}",
+              "instant": true,
+              "legendFormat": "",
+              "refId": "info"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "runai_allocated_gpu_count_per_workload{project=~\"$project\"}",
+              "instant": true,
+              "legendFormat": "",
+              "refId": "gpus"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "runai_allocated_cpu_cores_per_workload{project=~\"$project\"}",
+              "instant": true,
+              "legendFormat": "",
+              "refId": "cpu"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus" },
+              "expr": "runai_allocated_memory_per_pod{project=~\"$project\"}",
+              "instant": true,
+              "legendFormat": "",
+              "refId": "memory"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "GPU Allocated per Workload over Time",
+          "gridPos": { "x": 0, "y": 29, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "stepAfter", "showPoints": "never", "spanNulls": false },
+              "unit": "short"
+            }
+          },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_allocated_gpu_count_per_workload{project=~\"$project\"} > 0", "legendFormat": "{{workload_name}} ({{project}})" }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "CPU Cores Allocated per Workload over Time",
+          "gridPos": { "x": 12, "y": 29, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "linear", "showPoints": "never", "spanNulls": false },
+              "unit": "short"
+            }
+          },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_allocated_cpu_cores_per_workload{project=~\"$project\"} > 0", "legendFormat": "{{workload_name}} ({{project}})" }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Memory Allocated per Workload over Time",
+          "gridPos": { "x": 0, "y": 37, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "linear", "showPoints": "never", "spanNulls": false },
+              "unit": "bytes"
+            }
+          },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_allocated_memory_per_pod{project=~\"$project\"} > 0", "legendFormat": "{{workload_name}} ({{project}})" }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "GPU Memory Allocated per Workload (MB)",
+          "gridPos": { "x": 12, "y": 37, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "line", "lineInterpolation": "stepAfter", "showPoints": "never", "spanNulls": false },
+              "unit": "decmbytes"
+            }
+          },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "runai_allocated_gpu_memory_mb_per_workload{project=~\"$project\"} > 0", "legendFormat": "{{workload_name}} ({{project}})" }
+          ]
+        }
+      ]
+    }

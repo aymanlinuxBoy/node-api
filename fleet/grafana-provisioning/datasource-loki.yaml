@@ -4,8 +4,7 @@ kind: ConfigMap
 metadata:
   name: datasource-loki
   namespace: monitoring
-  labels:
-    grafana_datasource: "1"
+  labels: {}
 data:
   loki.yaml: |-
     apiVersion: 1

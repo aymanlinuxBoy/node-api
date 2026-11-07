@@ -1,20 +1,132 @@
 ---
+# ┌─────────────────────────────────────────────────────────────┐
+# │              MetalLB — L2 Mode Only                         │
+# │                                                             │
+# │  Pools:                                                     │
+# │    ingress-pool   → 10.50.0.100     (Traefik, kube-system) │
+# │    monitoring-pool→ 176.57.189.45   (Grafana, Prometheus)  │
+# │    apps-pool      → 94.250.202.136  (general workloads)    │
+# │                     173.249.48.125                          │
+# │                                                             │
+# │  ingress VIP floats (HA) — public IPs pinned to owner node │
+# │  No BGP — pure L2/ARP advertisement on br-metallb.         │
+# └─────────────────────────────────────────────────────────────┘
+
+---
+# Pool 1 — Traefik / Run:ai ingress VIP
+# Manual assignment only — restricted to kube-system namespace
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-  name: loki-pool
+  name: ingress-pool
   namespace: metallb-system
 spec:
   addresses:
-    - 176.57.189.45/32
-    - 94.250.202.136/32
-    - 185.197.249.98/32
+    - 10.50.0.100/32
+  autoAssign: false
+  avoidBuggyIPs: false
+  serviceAllocation:
+    priority: 10
+    namespaces:
+      - kube-system
+
+---
+# Pool 2 — Monitoring stack (Grafana, Prometheus, Thanos)
+# Dedicated to monitoring namespace — prevents any other service grabbing it
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: monitoring-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 176.57.189.45/32    # vmi3565261 (control-plane)
+  autoAssign: true
+  avoidBuggyIPs: false
+  serviceAllocation:
+    priority: 20
+    namespaces:
+      - monitoring
+
+---
+# Pool 3 — General workloads / apps
+# Available to all other namespaces, auto-assigned
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: apps-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 94.250.202.136/32   # vmi3565262 (GPU worker)
+    - 173.249.48.125/32   # vmi3577894 (GPU worker)
+  autoAssign: true
+  avoidBuggyIPs: false
+
+---
+# L2 Advertisement — ingress-pool, no nodeSelector
+# 10.50.0.100 is a VIP (not physically bound to any NIC) so MetalLB can
+# elect any node as the ARP speaker. When a node fails, MetalLB automatically
+# moves the VIP to a healthy node. Traefik is a DaemonSet so it runs on all
+# nodes — failover is seamless with no manual intervention.
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-ingress
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - ingress-pool
+  interfaces:
+    - br-metallb
+  # No nodeSelectors — MetalLB elects the speaker dynamically for HA
+
+---
+# L2 Advertisement — monitoring-pool pinned to control-plane node
+# 176.57.189.45 is the control-plane's public IP
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-monitoring
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - monitoring-pool
+  interfaces:
+    - br-metallb
+  nodeSelectors:
+    - matchLabels:
+        kubernetes.io/hostname: vmi3565261
+
+---
+# L2 Advertisement — apps-pool: each IP pinned to its owning GPU worker node
+# MetalLB will assign 94.250.202.136 services to vmi3565262
+# and 173.249.48.125 services to vmi3577894
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2-apps-vmi3565262
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - apps-pool
+  interfaces:
+    - br-metallb
+  nodeSelectors:
+    - matchLabels:
+        kubernetes.io/hostname: vmi3565262
+
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-  name: loki-l2
+  name: l2-apps-vmi3577894
   namespace: metallb-system
 spec:
   ipAddressPools:
-    - loki-pool
+    - apps-pool
+  interfaces:
+    - br-metallb
+  nodeSelectors:
+    - matchLabels:
+        kubernetes.io/hostname: vmi3577894
