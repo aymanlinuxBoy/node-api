@@ -4,7 +4,7 @@
   "tags": ["loki", "fluent-bit", "logs", "multi-cluster"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "30s",
   "time": { "from": "now-1h", "to": "now" },
   "templating": {
@@ -26,7 +26,7 @@
         "label": "Namespace",
         "type": "query",
         "datasource": { "type": "loki", "uid": "loki" },
-        "query": "label_values({job=\"fluent-bit\", cluster=~\"$cluster\"}, namespace_name)",
+        "query": "label_values({job=\"fluent-bit\", cluster=~\"$cluster\"}, kubernetes_namespace_name)",
         "includeAll": true,
         "allValue": ".*",
         "multi": true,
@@ -165,7 +165,7 @@
       "targets": [{
         "refId": "A",
         "datasource": { "type": "loki", "uid": "loki" },
-        "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"local\", namespace_name=~\"$namespace\"} | json | kubernetes_pod_name=~\"$pod\" |~ \"$search\""
+        "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"local\", kubernetes_namespace_name=~\"$namespace\"} | json | kubernetes_pod_name=~\"$pod\" |~ \"$search\""
       }],
       "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
     },
@@ -194,7 +194,7 @@
       "targets": [{
         "refId": "A",
         "datasource": { "type": "loki", "uid": "loki" },
-        "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"downstream\", namespace_name=~\"$namespace\"} | json | kubernetes_pod_name=~\"$pod\" |~ \"$search\""
+        "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"downstream\", kubernetes_namespace_name=~\"$namespace\"} | json | kubernetes_pod_name=~\"$pod\" |~ \"$search\""
       }],
       "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
     },

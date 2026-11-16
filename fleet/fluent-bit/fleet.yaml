@@ -46,7 +46,6 @@ targets:
                 HTTP_User           {{`${LOKI_USERNAME}`}}
                 HTTP_Passwd         {{`${LOKI_PASSWORD}`}}
                 Labels              job=fluent-bit,source=container-logs,cluster=downstream
-                Label_Keys          $kubernetes['namespace_name']
                 auto_kubernetes_labels On
                 Line_Format         json
 
@@ -84,7 +83,6 @@ targets:
                 Host              loki-loki-distributed-gateway.logging.svc.cluster.local
                 Port              80
                 Labels            job=fluent-bit, source=container-logs, cluster=local
-                Label_Keys        $kubernetes['namespace_name']
                 auto_kubernetes_labels On
                 Line_Format       json
 
