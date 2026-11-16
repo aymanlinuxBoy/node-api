@@ -61,7 +61,7 @@ dashboards:
           "tags": ["loki", "fluent-bit", "logs", "multi-cluster"],
           "timezone": "browser",
           "schemaVersion": 39,
-          "version": 3,
+          "version": 4,
           "refresh": "30s",
           "time": { "from": "now-1h", "to": "now" },
           "templating": {
@@ -92,15 +92,9 @@ dashboards:
               },
               {
                 "name": "pod",
-                "label": "Pod",
-                "type": "query",
-                "datasource": { "type": "loki", "uid": "loki" },
-                "query": "label_values({job=\"fluent-bit\", cluster=~\"$cluster\"}, pod_name)",
-                "includeAll": true,
-                "allValue": ".*",
-                "multi": true,
-                "refresh": 2,
-                "current": { "text": "All", "value": "$__all" }
+                "label": "Pod (regex)",
+                "type": "textbox",
+                "current": { "text": ".*", "value": ".*" }
               },
               {
                 "name": "search",
@@ -183,7 +177,7 @@ dashboards:
               "gridPos": { "h": 12, "w": 12, "x": 0, "y": 21 },
               "datasource": { "type": "loki", "uid": "loki" },
               "targets": [{ "refId": "A", "datasource": { "type": "loki", "uid": "loki" },
-                "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"local\"} | json | kubernetes_namespace_name=~\"$namespace\" | kubernetes_pod_name=~\"$pod\" |~ \"$search\"" }],
+                "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"local\", namespace_name=~\"$namespace\"} | json | kubernetes_pod_name=~\"$pod\" |~ \"$search\"" }],
               "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
             },
             {
@@ -203,7 +197,7 @@ dashboards:
               "gridPos": { "h": 12, "w": 12, "x": 0, "y": 34 },
               "datasource": { "type": "loki", "uid": "loki" },
               "targets": [{ "refId": "A", "datasource": { "type": "loki", "uid": "loki" },
-                "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"downstream\"} | json | kubernetes_namespace_name=~\"$namespace\" | kubernetes_pod_name=~\"$pod\" |~ \"$search\"" }],
+                "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"downstream\", namespace_name=~\"$namespace\"} | json | kubernetes_pod_name=~\"$pod\" |~ \"$search\"" }],
               "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
             },
             {
