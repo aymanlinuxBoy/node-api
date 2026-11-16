@@ -4,7 +4,7 @@
   "tags": ["loki", "fluent-bit", "logs", "multi-cluster"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-1h", "to": "now" },
   "templating": {
@@ -24,79 +24,228 @@
     ]
   },
   "panels": [
+
+    { "collapsed": false, "id": 100, "title": "Overview", "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
     {
-      "id": 1,
-      "type": "timeseries",
-      "title": "Log lines per second by cluster",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1, "type": "timeseries",
+      "title": "Log lines / sec by cluster",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
       "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (cluster) (rate({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"}[$__rate_interval]))",
-          "legendFormat": "{{cluster}}"
-        }
-      ],
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "sum by (cluster) (rate({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"}[$__rate_interval]))",
+        "legendFormat": "{{cluster}}"
+      }],
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
     },
+
     {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Error / exception lines per minute by cluster",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2, "type": "timeseries",
+      "title": "Error / exception rate by cluster",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
       "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "sum by (cluster) (count_over_time({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"} |~ \"(?i)error|exception|fatal|panic\" [1m]))",
-          "legendFormat": "{{cluster}}"
-        }
-      ],
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "sum by (cluster) (count_over_time({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"} |~ \"(?i)error|exception|fatal|panic\" [1m]))",
+        "legendFormat": "{{cluster}}"
+      }],
       "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }, "overrides": [] },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
     },
+
     {
-      "id": 3,
-      "type": "logs",
-      "title": "Container logs",
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 8 },
+      "id": 3, "type": "barchart",
+      "title": "Top namespaces by error count (time range)",
+      "description": "Which namespaces are producing the most error/exception lines. Requires kubernetes_namespace_name label (auto_kubernetes_labels On).",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
       "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"}"
-        }
-      ],
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "sum by (kubernetes_namespace_name) (count_over_time({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"} | json | kubernetes_namespace_name != \"\" |~ \"(?i)error|exception|fatal|panic\" [$__range]))",
+        "legendFormat": "{{kubernetes_namespace_name}}",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
       "options": {
-        "showTime": true,
-        "wrapLogMessage": true,
-        "sortOrder": "Descending",
-        "enableLogDetails": true
+        "orientation": "horizontal",
+        "legend": { "displayMode": "hidden" },
+        "tooltip": { "mode": "single" },
+        "xTickLabelRotation": 0,
+        "groupWidth": 0.7,
+        "barWidth": 0.9
       }
     },
+
+    { "collapsed": false, "id": 101, "title": "Critical Events", "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 } },
+
     {
-      "id": 4,
-      "type": "logs",
-      "title": "Kubernetes events",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+      "id": 4, "type": "logs",
+      "title": "CrashLoopBackOff / OOMKilled",
+      "description": "Pod crash loops and OOM kills — the first place to look when a workload is flapping.",
+      "gridPos": { "h": 10, "w": 8, "x": 0, "y": 10 },
       "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "loki", "uid": "loki" },
-          "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"}"
-        }
-      ],
-      "options": {
-        "showTime": true,
-        "wrapLogMessage": true,
-        "sortOrder": "Descending",
-        "enableLogDetails": true
-      }
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} |~ \"(?i)crashloopbackoff|oomkill|backoff|restarting\""
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    {
+      "id": 5, "type": "logs",
+      "title": "Image Pull Failures",
+      "description": "ErrImagePull / ImagePullBackOff — registry unreachable, wrong tag, or missing credentials.",
+      "gridPos": { "h": 10, "w": 8, "x": 8, "y": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} |~ \"(?i)errimagepull|imagepullbackoff|failed to pull|pull access denied\""
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    {
+      "id": 6, "type": "logs",
+      "title": "Pod Scheduling Failures",
+      "description": "FailedScheduling — insufficient GPU/CPU/memory, taints not tolerated. Critical for RunAI GPU jobs that never start.",
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 10 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} |~ \"(?i)failedscheduling|insufficient|no nodes available|didn't match\""
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    { "collapsed": false, "id": 102, "title": "Upstream Cluster  (k3s / cluster=local)", "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 } },
+
+    {
+      "id": 7, "type": "logs",
+      "title": "Container Logs — upstream",
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"local\"}"
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    {
+      "id": 8, "type": "logs",
+      "title": "K8s Events — upstream",
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=\"local\"}"
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    { "collapsed": false, "id": 103, "title": "Downstream Cluster  (RKE2 / cluster=downstream)", "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 } },
+
+    {
+      "id": 9, "type": "logs",
+      "title": "Container Logs — downstream",
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 34 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=\"downstream\"}"
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    {
+      "id": 10, "type": "logs",
+      "title": "K8s Events — downstream",
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 34 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=\"downstream\"}"
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    { "collapsed": false, "id": 104, "title": "RunAI / GPU Workloads", "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 } },
+
+    {
+      "id": 11, "type": "logs",
+      "title": "RunAI Scheduler — allocation, preemption, quota events",
+      "description": "Logs from the runai and runai-backend namespaces filtered for scheduling decisions. Shows GPU job allocation, preemption, quota enforcement, and failures — often before the job pod itself starts.",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 47 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"} | json | kubernetes_namespace_name=~\"runai.*\""
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    {
+      "id": 12, "type": "logs",
+      "title": "GPU Job Failures",
+      "description": "RunAI namespace events filtered for failure / error keywords — catches job crashes, quota violations, and preemption.",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 59 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"} | json | kubernetes_namespace_name=~\"runai.*\" |~ \"(?i)fail|error|preempt|evict|quota|exceeded\""
+      }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    },
+
+    { "collapsed": false, "id": 105, "title": "Noise Detection", "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 71 } },
+
+    {
+      "id": 13, "type": "table",
+      "title": "Top 10 chatty pods (log volume)",
+      "description": "Pods producing the highest log volume. A pod logging thousands of lines per second can mask real signals in the log browser — these are the first candidates to add rate-limit filters for.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 72 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "refId": "A",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "expr": "topk(10, sum by (kubernetes_pod_name, cluster) (rate({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"} | json [$__rate_interval])))",
+        "legendFormat": "{{kubernetes_pod_name}} ({{cluster}})",
+        "instant": true
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Value" }, "properties": [
+            { "id": "displayName", "value": "lines/sec" },
+            { "id": "unit", "value": "short" }
+          ]}
+        ]
+      },
+      "options": { "sortBy": [{ "displayName": "lines/sec", "desc": true }] }
     }
+
   ]
 }
