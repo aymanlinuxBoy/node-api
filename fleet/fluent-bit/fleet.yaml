@@ -16,24 +16,52 @@ targets:
         env: downstream
     helm:
       values:
+        # Downstream has no Loki of its own. Logs are shipped to the central
+        # Loki on the upstream cluster through its public ingest ingress
+        # (runai-poc-integrant.duckdns.org/loki/api/v1/push, TLS + basic-auth).
+        # Credentials live in Secret logging/fluent-bit-loki-credentials
+        # (created out-of-band, never committed to git).
+        env:
+          - name: LOKI_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: fluent-bit-loki-credentials
+                key: username
+          - name: LOKI_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: fluent-bit-loki-credentials
+                key: password
         config:
           outputs: |
             [OUTPUT]
-                Name              loki
-                Match             kube.var.log.*
-                Host              loki-loki-distributed-gateway.logging.svc.cluster.local
-                Port              80
-                Labels            job=fluent-bit, source=container-logs, cluster=downstream
+                Name                loki
+                Match               kube.var.log.*
+                Host                runai-poc-integrant.duckdns.org
+                Port                443
+                URI                 /loki/api/v1/push
+                TLS                 On
+                TLS.Verify          On
+                TLS.Verify_Hostname On
+                HTTP_User           ${LOKI_USERNAME}
+                HTTP_Passwd         ${LOKI_PASSWORD}
+                Labels              job=fluent-bit,source=container-logs,cluster=downstream
                 auto_kubernetes_labels On
-                Line_Format       json
+                Line_Format         json
 
             [OUTPUT]
-                Name              loki
-                Match             kube.events
-                Host              loki-loki-distributed-gateway.logging.svc.cluster.local
-                Port              80
-                Labels            job=fluent-bit, source=k8s-events, cluster=downstream
-                Line_Format       json
+                Name                loki
+                Match               kube.events
+                Host                runai-poc-integrant.duckdns.org
+                Port                443
+                URI                 /loki/api/v1/push
+                TLS                 On
+                TLS.Verify          On
+                TLS.Verify_Hostname On
+                HTTP_User           ${LOKI_USERNAME}
+                HTTP_Passwd         ${LOKI_PASSWORD}
+                Labels              job=fluent-bit,source=k8s-events,cluster=downstream
+                Line_Format         json
 
             [OUTPUT]
                 Name              prometheus_exporter

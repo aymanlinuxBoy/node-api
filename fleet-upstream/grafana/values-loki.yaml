@@ -1,0 +1,157 @@
+# Helm values to add the Loki datasource and cross-cluster log dashboard
+# to the upstream Grafana release.
+#
+# The existing release is "grafana" in namespace "monitoring", using chart
+# grafana/grafana 14.4.0, served at runai-grafana-integrant.duckdns.org.
+#
+# APPLY (keep all existing values, only override what's listed here):
+#   helm --kube-context upstream upgrade grafana grafana/grafana \
+#     --version 14.4.0 -n monitoring --reuse-values -f values-loki.yaml
+#
+# NOTE: The 'datasources' key is a complete replacement, so both sources must
+# be listed (Runai-Thanos is copied from the live release to prevent drift).
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      # Existing: Run:ai / Thanos metrics
+      - name: Runai-Thanos
+        type: prometheus
+        uid: runai-thanos
+        access: proxy
+        url: http://runai-backend-thanos-query.runai-backend.svc.cluster.local:9090
+        isDefault: true
+        editable: true
+
+      # New: central Loki — aggregates logs from upstream (cluster=local)
+      # and downstream (cluster=downstream) via Fluent Bit
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://loki-loki-distributed-gateway.logging.svc.cluster.local:80
+        isDefault: false
+        editable: true
+        jsonData:
+          maxLines: 1000
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+dashboards:
+  default:
+    cluster-logs:
+      # Cross-cluster log dashboard (upstream + downstream).
+      # Source file: fleet-upstream/grafana/cluster-logs.dashboard.json
+      json: |
+        {
+          "uid": "cluster-logs",
+          "title": "Cluster Logs (upstream + downstream)",
+          "tags": ["loki", "fluent-bit", "logs", "multi-cluster"],
+          "timezone": "browser",
+          "schemaVersion": 39,
+          "version": 1,
+          "refresh": "30s",
+          "time": { "from": "now-1h", "to": "now" },
+          "templating": {
+            "list": [
+              {
+                "name": "cluster",
+                "label": "Cluster",
+                "type": "query",
+                "datasource": { "type": "loki", "uid": "loki" },
+                "query": "label_values({job=\"fluent-bit\"}, cluster)",
+                "includeAll": true,
+                "allValue": ".+",
+                "multi": true,
+                "refresh": 2,
+                "current": { "text": "All", "value": "$__all" }
+              }
+            ]
+          },
+          "panels": [
+            {
+              "id": 1,
+              "type": "timeseries",
+              "title": "Log lines/sec by cluster",
+              "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+              "datasource": { "type": "loki", "uid": "loki" },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": { "type": "loki", "uid": "loki" },
+                  "expr": "sum by (cluster) (rate({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"}[$__rate_interval]))",
+                  "legendFormat": "{{cluster}}"
+                }
+              ],
+              "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+            },
+            {
+              "id": 2,
+              "type": "timeseries",
+              "title": "Errors/exceptions per minute by cluster",
+              "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+              "datasource": { "type": "loki", "uid": "loki" },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": { "type": "loki", "uid": "loki" },
+                  "expr": "sum by (cluster) (count_over_time({job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"} |~ \"(?i)error|exception|fatal|panic\" [1m]))",
+                  "legendFormat": "{{cluster}}"
+                }
+              ],
+              "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+            },
+            {
+              "id": 3,
+              "type": "logs",
+              "title": "Container logs",
+              "gridPos": { "h": 12, "w": 24, "x": 0, "y": 8 },
+              "datasource": { "type": "loki", "uid": "loki" },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": { "type": "loki", "uid": "loki" },
+                  "expr": "{job=\"fluent-bit\", source=\"container-logs\", cluster=~\"$cluster\"}"
+                }
+              ],
+              "options": {
+                "showTime": true,
+                "wrapLogMessage": true,
+                "sortOrder": "Descending",
+                "enableLogDetails": true
+              }
+            },
+            {
+              "id": 4,
+              "type": "logs",
+              "title": "Kubernetes events",
+              "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+              "datasource": { "type": "loki", "uid": "loki" },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": { "type": "loki", "uid": "loki" },
+                  "expr": "{job=\"fluent-bit\", source=\"k8s-events\", cluster=~\"$cluster\"}"
+                }
+              ],
+              "options": {
+                "showTime": true,
+                "wrapLogMessage": true,
+                "sortOrder": "Descending",
+                "enableLogDetails": true
+              }
+            }
+          ]
+        }
