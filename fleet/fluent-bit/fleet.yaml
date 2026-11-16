@@ -43,8 +43,8 @@ targets:
                 TLS                 On
                 TLS.Verify          On
                 TLS.Verify_Hostname On
-                HTTP_User           ${LOKI_USERNAME}
-                HTTP_Passwd         ${LOKI_PASSWORD}
+                HTTP_User           {{`${LOKI_USERNAME}`}}
+                HTTP_Passwd         {{`${LOKI_PASSWORD}`}}
                 Labels              job=fluent-bit,source=container-logs,cluster=downstream
                 auto_kubernetes_labels On
                 Line_Format         json
@@ -58,8 +58,8 @@ targets:
                 TLS                 On
                 TLS.Verify          On
                 TLS.Verify_Hostname On
-                HTTP_User           ${LOKI_USERNAME}
-                HTTP_Passwd         ${LOKI_PASSWORD}
+                HTTP_User           {{`${LOKI_USERNAME}`}}
+                HTTP_Passwd         {{`${LOKI_PASSWORD}`}}
                 Labels              job=fluent-bit,source=k8s-events,cluster=downstream
                 Line_Format         json
 
